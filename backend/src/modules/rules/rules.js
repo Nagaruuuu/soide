@@ -22,6 +22,31 @@ function cosineTokens(a, b) {
   return na && nb ? dot / (na * nb) : 0;
 }
 
+// Từ khóa nháp / dummy / thử nghiệm
+const DUMMY_KEYWORDS = /\b(test|testing|abcd|asdf|qwerty|xyz|dummy|placeholder|sample|demo)\b/i;
+
+// Phương án dummy phổ biến (lặp âm, placeholder vô nghĩa như HI, HA, HO, HU, aaa, bbb)
+const DUMMY_OPTS_PATTERN = /^(hi|ha|ho|hu|bla|xxx|aaa|bbb|ccc|ddd|test|abcd)$/i;
+
+// Dấu hỏi đặt ở đầu câu
+const QUESTION_MARK_LEADING = /^\s*[\?？]/;
+
+// Từ nghi vấn đặc trưng tiếng Việt
+const INTERROGATIVE_WORDS = /(là gì|ở đâu|khi nào|bao nhiêu|ai|tại sao|vì sao|thế nào|như thế nào|phải không|mấy|nào)/i;
+
+export function shannonEntropy(str = "") {
+  const s = String(str || "").replace(/\s+/g, "").toLowerCase();
+  if (!s.length) return 0;
+  const freq = {};
+  for (const c of s) freq[c] = (freq[c] || 0) + 1;
+  let ent = 0;
+  for (const c in freq) {
+    const p = freq[c] / s.length;
+    ent -= p * Math.log2(p);
+  }
+  return ent;
+}
+
 export function dupSimilarity(a, b) { return cosineTokens(a, b); }
 
 export function runRules(q, check = {}, siblings = []) {
@@ -40,8 +65,47 @@ export function runRules(q, check = {}, siblings = []) {
       push("info", "khong_kem_dap_an", "Đề không kèm đáp án — chỉ soi cấu trúc, AI sẽ gợi ý đáp án.", "Bật gợi ý đáp án ở bước chạy để nhận đề xuất.", "rule", "vừa");
   }
   const content = q.content || "";
-  if (!/\?\s*$/.test(content) && !/(chọn|điền|tính|tìm|nào sau đây|đúng|sai)/i.test(content))
+  const trimmed = content.trim();
+
+  // 1. Kiểm tra cú pháp dấu hỏi '?'
+  if (QUESTION_MARK_LEADING.test(content)) {
+    push("review", "dau_hoi_sai_vi_tri", "Dấu hỏi '?' bị đặt ở đầu câu hoặc sai vị trí cú pháp.", "Di chuyển dấu hỏi '?' về cuối câu hỏi.", "rule", "cao");
+  } else if (INTERROGATIVE_WORDS.test(content) && !/[\?？]\s*$/.test(content)) {
+    push("review", "thieu_dau_hoi", "Câu chứa từ nghi vấn nhưng cuối câu thiếu dấu '?'.", "Thêm dấu hỏi chấm '?' vào cuối câu hỏi.", "rule", "cao");
+  } else if (!/[\?？]\s*$/.test(content) && !/(chọn|điền|tính|tìm|nào sau đây|đúng|sai)/i.test(content)) {
     push("hint", "cau_chu", "Câu hỏi chưa có dấu hỏi hoặc động từ yêu cầu rõ ràng.", "Thêm yêu cầu: '... là gì? / Chọn đáp án đúng.'", "rule", "vừa");
+  }
+
+  // 2. Kiểm tra độ dài câu hỏi & nội dung quá ngắn
+  if (trimmed.length > 0 && trimmed.length < 10 && !/^\d+\s*[\+\-\*\/]\s*\d+/.test(trimmed)) {
+    push("review", "cau_qua_ngan", `Câu hỏi quá ngắn (${trimmed.length} ký tự), nghi ngờ là văn bản nháp chưa hoàn thiện.`, "Bổ sung đầy đủ nội dung câu dẫn và câu hỏi.", "rule", "cao");
+  }
+
+  // 3. Kiểm tra từ khóa nháp / test placeholder
+  if (DUMMY_KEYWORDS.test(content)) {
+    push("review", "tu_khoa_test", "Nội dung câu hỏi chứa từ khóa nháp / thử nghiệm ('test', 'dummy', 'abcd'...).", "Thay thế bằng nội dung đề thi chính thức.", "rule", "cao");
+  }
+
+  // 4. Thuật toán Shannon Entropy (phát hiện chuỗi lặp / spam / vô nghĩa)
+  if (trimmed.length >= 12) {
+    const ent = shannonEntropy(trimmed);
+    if (ent < 1.8) {
+      push("review", "entropy_thap", `Độ hỗn loạn thông tin cực thấp (Shannon Entropy = ${ent.toFixed(2)}) — nghi ngờ gõ lặp ký tự hoặc văn bản vô nghĩa.`, "Viết lại nội dung câu hỏi có nghĩa.", "rule", "cao");
+    }
+  }
+
+  // 5. Kiểm tra phương án dummy / quá ngắn
+  const rawOpts = [q.opt_a, q.opt_b, q.opt_c, q.opt_d].map((s) => String(s || "").trim());
+  const dummyOptsCount = rawOpts.filter((s) => DUMMY_OPTS_PATTERN.test(s)).length;
+  if (dummyOptsCount >= 3) {
+    push("review", "phuong_an_dummy", "Các phương án có dấu hiệu gõ thử / placeholder (ví dụ: HI, HA, HO, HU, test...).", "Nhập các phương án câu hỏi thực tế.", "rule", "cao");
+  } else {
+    const nonNumShort = rawOpts.filter((s) => s.length > 0 && s.length <= 2 && /^[a-zA-Z\u00C0-\u024F\u1E00-\u1EFF]+$/.test(s) && !/^\d+$/.test(s));
+    if (nonNumShort.length === 4) {
+      push("hint", "phuong_an_qua_ngan", "Các phương án đều rất ngắn (1-2 chữ cái), nghi ngờ chưa hoàn thiện nội dung.", "Bổ sung nội dung chi tiết cho các phương án.", "rule", "vừa");
+    }
+  }
+
   for (const re of DOUBLE_NEG) {
     if (re.test(content)) { push("review", "phu_dinh_kep", `Câu chứa phủ định kép ("${re.source}") — HS dễ hiểu nhầm.`, "Viết lại khẳng định hoặc chỉ giữ 1 phủ định.", "rule", "vừa"); break; }
   }

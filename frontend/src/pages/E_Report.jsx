@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { api } from "../lib/api.js";
 import {
   IconCopy,
@@ -23,6 +23,7 @@ const MOCK_SAMPLE_REPORT = {
     ok_questions: 32,
     review_count: 5,
     blocker_count: 3,
+    severity_counts: { blocker: 3, review: 5, hint: 0 },
   },
   matrix_gdpt_2018: {
     total: 40,
@@ -46,7 +47,7 @@ const MOCK_SAMPLE_REPORT = {
       expected_answer: "B",
       suggested_answer: "C",
       evidence: "Hai phương pháp cho kết quả khác nhau. Cần đối chiếu điều kiện câu hỏi và kiến thức liên quan.",
-      source_reference: "bài học hoặc trang sách tương ứng, nếu tìm được.",
+      source_reference: "",
       fix_suggestion: "Đổi phương án đúng sang C hoặc điều chỉnh lại câu dẫn để khớp với phương án B.",
       verification_method: "Giải độc lập đối sánh (Rules + Solver Sandbox)",
     },
@@ -79,6 +80,22 @@ const MOCK_SAMPLE_REPORT = {
   ],
 };
 
+const exportMenuItemStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  width: "100%",
+  padding: "10px 14px",
+  background: "#fff",
+  border: "none",
+  borderBottom: "1px solid #f1f5f9",
+  fontSize: 13.5,
+  fontWeight: 600,
+  color: "#1e293b",
+  cursor: "pointer",
+  textAlign: "left",
+};
+
 export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) {
   const [data, setData] = useState(null);
   const [allChecks, setAllChecks] = useState([]);
@@ -87,6 +104,7 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
   const [currentId, setCurrentId] = useState(checkId);
   const [verifyingFinding, setVerifyingFinding] = useState(null);
   const [editingFinding, setEditingFinding] = useState(null);
+  const [exportOpen, setExportOpen] = useState(false);
 
   useEffect(() => {
     setCurrentId(checkId);
@@ -95,6 +113,15 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
   useEffect(() => {
     loadReportData();
   }, [currentId]);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") setExportOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [exportOpen]);
 
   async function loadReportData() {
     setLoading(true);
@@ -139,17 +166,8 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
     md += `- **Thời gian xuất:** ${new Date().toLocaleString("vi-VN")}\n\n`;
     md += `## THỐNG KÊ TỔNG QUAN\n`;
     md += `- Chưa phát hiện lỗi: ${s.ok_questions ?? 0} câu\n`;
-    md += `- Cần xem lại: ${s.review_count ?? s.pending ?? 0} câu\n`;
-    md += `- Có dấu hiệu sai: ${s.blocker_count ?? s.confirmed ?? 0} câu\n\n`;
-
-    const m = data.matrix_gdpt_2018;
-    if (m) {
-      md += `## MA TRẬN NHẬN THỨC & CẤU TRÚC ĐỀ (CT GDPT 2018)\n`;
-      md += `- Nhận biết: ${m.distribution?.biet?.count ?? 0} câu (${m.distribution?.biet?.percent ?? 0}%) [Khung chuẩn ~40%]\n`;
-      md += `- Thông hiểu: ${m.distribution?.hieu?.count ?? 0} câu (${m.distribution?.hieu?.percent ?? 0}%) [Khung chuẩn ~30%]\n`;
-      md += `- Vận dụng: ${m.distribution?.van_dung?.count ?? 0} câu (${m.distribution?.van_dung?.percent ?? 0}%) [Khung chuẩn ~20%]\n`;
-      md += `- Vận dụng cao: ${m.distribution?.van_dung_cao?.count ?? 0} câu (${m.distribution?.van_dung_cao?.percent ?? 0}%) [Khung chuẩn ~10%]\n\n`;
-    }
+    md += `- Cần xem lại (mức Nên xem): ${s.severity_counts?.review ?? s.review_count ?? s.pending ?? 0} câu\n`;
+    md += `- Có dấu hiệu sai (mức Chặn lại): ${s.severity_counts?.blocker ?? s.blocker_count ?? s.confirmed ?? 0} câu\n\n`;
 
     md += `## DANH SÁCH CHI TIẾT CẢNH BÁO\n\n`;
 
@@ -173,7 +191,6 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
     const active = data;
     const c = active.check || {};
     const s = active.summary || {};
-    const m = active.matrix_gdpt_2018 || {};
     const findingsList = active.findings || [];
 
     const html = `
@@ -220,58 +237,15 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
         <li><strong>Tên bài kiểm tra:</strong> ${c.title || "Đề kiểm tra định kỳ"}</li>
         <li><strong>Môn học:</strong> ${c.subject || "Tin học"} ${c.grade ? `(Khối ${c.grade})` : ""}</li>
         <li><strong>Bộ sách tham chiếu:</strong> Kết nối tri thức / Cánh diều</li>
-        <li><strong>Tổng số câu hỏi:</strong> ${s.total_questions || 40} câu</li>
-        <li><strong>Phương thức thẩm định:</strong> Hệ thống Phản biện AI Soi Đề (Rules Engine + Solver Sandbox + Ma trận GDPT 2018)</li>
+        <li><strong>Tổng số câu hỏi:</strong> ${s.total_questions ?? 0} câu</li>
+        <li><strong>Phương thức thẩm định:</strong> Hệ thống Phản biện AI Soi Đề (Rules Engine + Solver Sandbox)</li>
       </ul>
 
-      <h2>II. ĐÁNH GIÁ ĐỘ PHỦ MA TRẬN NHẬN THỨC (CT GDPT 2018)</h2>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Mức độ nhận thức</th>
-            <th>Số lượng câu</th>
-            <th>Tỷ lệ thực tế</th>
-            <th>Khung chuẩn Bộ GD&ĐT</th>
-            <th>Đánh giá sư phạm</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><strong>1. Nhận biết</strong></td>
-            <td style="text-align: center;">${m.distribution?.biet?.count || 16}</td>
-            <td style="text-align: center;">${m.distribution?.biet?.percent || 40}%</td>
-            <td style="text-align: center;">~40%</td>
-            <td>Đạt chuẩn</td>
-          </tr>
-          <tr>
-            <td><strong>2. Thông hiểu</strong></td>
-            <td style="text-align: center;">${m.distribution?.hieu?.count || 12}</td>
-            <td style="text-align: center;">${m.distribution?.hieu?.percent || 30}%</td>
-            <td style="text-align: center;">~30%</td>
-            <td>Đạt chuẩn</td>
-          </tr>
-          <tr>
-            <td><strong>3. Vận dụng</strong></td>
-            <td style="text-align: center;">${m.distribution?.van_dung?.count || 8}</td>
-            <td style="text-align: center;">${m.distribution?.van_dung?.percent || 20}%</td>
-            <td style="text-align: center;">~20%</td>
-            <td>Đạt chuẩn</td>
-          </tr>
-          <tr>
-            <td><strong>4. Vận dụng cao</strong></td>
-            <td style="text-align: center;">${m.distribution?.van_dung_cao?.count || 4}</td>
-            <td style="text-align: center;">${m.distribution?.van_dung_cao?.percent || 10}%</td>
-            <td style="text-align: center;">~10%</td>
-            <td>Đạt chuẩn phân hóa</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h2>III. TỔNG HỢP KẾT QUẢ ĐỐI SOÁT & DANH MỤC CÂU CẦN ĐIỀU CHỈNH</h2>
+      <h2>II. TỔNG HỢP KẾT QUẢ ĐỐI SOÁT & DANH MỤC CÂU CẦN ĐIỀU CHỈNH</h2>
       <ul>
-        <li>Số câu đạt chuẩn hoàn toàn: <strong>${s.ok_questions || 32}</strong> câu</li>
-        <li>Số câu có cảnh báo cần xem lại: <strong>${s.review_count || s.pending || 5}</strong> câu</li>
-        <li>Số câu có dấu hiệu sai đáp án / dữ liệu: <strong>${s.blocker_count || s.confirmed || 3}</strong> câu</li>
+        <li>Số câu đạt chuẩn hoàn toàn: <strong>${s.ok_questions ?? 0}</strong> câu</li>
+        <li>Số câu có cảnh báo cần xem lại: <strong>${s.severity_counts?.review ?? s.review_count ?? s.pending ?? 0}</strong> câu</li>
+        <li>Số câu có dấu hiệu sai đáp án / dữ liệu: <strong>${s.severity_counts?.blocker ?? s.blocker_count ?? s.confirmed ?? 0}</strong> câu</li>
       </ul>
 
       <table class="data-table">
@@ -297,7 +271,7 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
         </tbody>
       </table>
 
-      <h2>IV. KẾT QUẢ ĐỐI SOÁT ĐỀ NÀY (SỐ LIỆU THỰC TẾ)</h2>
+      <h2>III. KẾT QUẢ ĐỐI SOÁT ĐỀ NÀY (SỐ LIỆU THỰC TẾ)</h2>
       <table class="data-table">
         <thead>
           <tr>
@@ -326,7 +300,7 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
       </table>
       <div class="note"><strong>Ghi chú:</strong> Bảng trên chỉ phản ánh kết quả thẩm định của đúng đề thi này. Hệ thống không cam kết tỷ lệ phát hiện lỗi hay độ chính xác tổng quát.</div>
 
-      <h2>V. KẾT LUẬN VÀ KIẾN NGHỊ CỦA TỔ CHUYÊN MÔN</h2>
+      <h2>IV. KẾT LUẬN VÀ KIẾN NGHỊ CỦA TỔ CHUYÊN MÔN</h2>
       <p>1. Đề thi đạt yêu cầu về mục tiêu, chuẩn kiến thức kỹ năng theo Chương trình GDPT 2018 sau khi điều chỉnh các câu hỏi đã ghi nhận ở Mục III.</p>
       <p>2. Thống nhất phê duyệt đưa vào sử dụng làm đề kiểm tra chính thức.</p>
 
@@ -383,22 +357,66 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
   const check = activeData.check || {};
   const summary = activeData.summary || {};
   const findings = activeData.findings || [];
-  const matrix = activeData.matrix_gdpt_2018 || null;
 
-  // Compute stat counts
+  // Severity ranking: blocker > review > hint > info
+  const SEVERITY_RANK = { blocker: 3, review: 2, hint: 1, info: 0 };
+  const getSeverityRank = (sev) => SEVERITY_RANK[sev] ?? 0;
+
+  // Gom findings theo câu (f.ord) — giữ đúng thứ tự xuất hiện, câu không số gom nhóm "Khác"
+  const groupedFindings = useMemo(() => {
+    const groups = [];
+    const map = new Map();
+
+    findings.forEach((f) => {
+      const key = f.ord !== undefined && f.ord !== null ? String(f.ord) : "Khác";
+      if (!map.has(key)) {
+        const group = {
+          key,
+          ord: f.ord,
+          items: [],
+          highestSeverity: f.severity || "review",
+          cognitiveLevel: f.cognitive_level || null,
+          expectedAnswer: f.expected_answer || null,
+          suggestedAnswer: f.suggested_answer || null,
+          mainTitle: f.title || "",
+        };
+        map.set(key, group);
+        groups.push(group);
+      }
+      const g = map.get(key);
+      g.items.push(f);
+
+      // Cập nhật mức độ nặng nhất & tiêu đề chính từ finding nặng nhất
+      if (getSeverityRank(f.severity) > getSeverityRank(g.highestSeverity)) {
+        g.highestSeverity = f.severity;
+        if (f.title) g.mainTitle = f.title;
+      }
+      if (!g.mainTitle && f.title) g.mainTitle = f.title;
+      if (!g.cognitiveLevel && f.cognitive_level) g.cognitiveLevel = f.cognitive_level;
+      if (!g.expectedAnswer && f.expected_answer) g.expectedAnswer = f.expected_answer;
+      if (!g.suggestedAnswer && f.suggested_answer) g.suggestedAnswer = f.suggested_answer;
+    });
+
+    return groups;
+  }, [findings]);
+
+  // Compute stat counts — theo MỨC ĐỘ (severity) để khớp màu thẻ cảnh báo,
+  // không theo trạng thái duyệt (confirmed/pending) như trước
   const okCount = summary.ok_questions !== undefined ? summary.ok_questions : 0;
-  const reviewCount = summary.review_count !== undefined
-    ? summary.review_count
-    : (summary.pending !== undefined ? summary.pending : 0);
-  const blockerCount = summary.blocker_count !== undefined
-    ? summary.blocker_count
-    : (summary.confirmed !== undefined ? summary.confirmed : 0);
+  const reviewCount = summary.severity_counts?.review
+    ?? (summary.review_count !== undefined
+      ? summary.review_count
+      : (summary.pending !== undefined ? summary.pending : 0));
+  const blockerCount = summary.severity_counts?.blocker
+    ?? (summary.blocker_count !== undefined
+      ? summary.blocker_count
+      : (summary.confirmed !== undefined ? summary.confirmed : 0));
 
   const hasWarnings = (reviewCount + blockerCount) > 0;
 
   return (
     <div className="spec-container" style={{ maxWidth: 880 }}>
-      {/* Top Action Bar with Export Word, Export PDF, Copy Markdown */}
+      {/* Top Action Bar: dropdown Xuất báo cáo (gọn, không choán chỗ) */}
       <div
         className="no-print"
         style={{
@@ -410,33 +428,52 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
           flexWrap: "wrap",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ position: "relative" }}>
           <button
             className="btn btn-secondary btn-sm"
-            onClick={handleExportWord}
-            title="Xuất file Word (.doc) cho tổ chuyên môn"
-            style={{ fontWeight: 700, color: "#1d4ed8", borderColor: "#93c5fd", background: "#f0f7ff" }}
+            onClick={() => setExportOpen((v) => !v)}
+            title="Xuất báo cáo"
+            style={{ fontWeight: 700 }}
           >
-            <span>📄 Xuất Word (.doc)</span>
+            <span>📥 Xuất báo cáo ▾</span>
           </button>
-
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={handleExportPDF}
-            title="Xuất PDF hoặc In biên bản duyệt đề"
-            style={{ fontWeight: 700, color: "#b91c1c", borderColor: "#fca5a5", background: "#fff5f5" }}
-          >
-            <span>🖨️ In / Xuất PDF</span>
-          </button>
-
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={handleCopyMarkdown}
-            title="Sao chép Markdown"
-          >
-            <IconCopy size={14} />
-            <span>Sao chép Markdown</span>
-          </button>
+          {exportOpen && (
+            <>
+              <div
+                style={{ position: "fixed", inset: 0, zIndex: 998 }}
+                onClick={() => setExportOpen(false)}
+              />
+              <div
+                style={{
+                  position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 999,
+                  background: "#fff", border: "1px solid #e2e8f0", borderRadius: 10,
+                  boxShadow: "0 10px 30px rgba(0,0,0,0.12)", minWidth: 220, overflow: "hidden",
+                }}
+              >
+                <button
+                  onClick={() => { setExportOpen(false); handleExportWord(); }}
+                  title="Xuất file Word (.doc) cho tổ chuyên môn"
+                  style={exportMenuItemStyle}
+                >
+                  <span>📄 Xuất Word (.doc)</span>
+                </button>
+                <button
+                  onClick={() => { setExportOpen(false); handleExportPDF(); }}
+                  title="Xuất PDF hoặc In biên bản duyệt đề"
+                  style={exportMenuItemStyle}
+                >
+                  <span>🖨️ In / Xuất PDF</span>
+                </button>
+                <button
+                  onClick={() => { setExportOpen(false); handleCopyMarkdown(); }}
+                  title="Sao chép Markdown"
+                  style={{ ...exportMenuItemStyle, borderBottom: "none" }}
+                >
+                  <span>📋 Sao chép Markdown</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -625,174 +662,15 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
           </div>
         </div>
 
-        {/* Khối Đánh giá Ma trận nhận thức & Cấu trúc trắc nghiệm mới chuẩn CT GDPT 2018 */}
-        {matrix && (
-          <div
-            style={{
-              background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)",
-              border: "1px solid #e2e8f0",
-              borderRadius: "16px",
-              padding: "20px 22px",
-              marginBottom: "26px",
-            }}
-          >
-            {/* Header row */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "16px",
-                flexWrap: "wrap",
-                gap: 10,
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span
-                  style={{
-                    background: "#0284c7",
-                    color: "white",
-                    padding: "3px 10px",
-                    borderRadius: 9999,
-                    fontSize: 11.5,
-                    fontWeight: 700,
-                    letterSpacing: "0.04em",
-                  }}
-                >
-                  CT GDPT 2018
-                </span>
-                <span style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>
-                  Độ phủ Ma trận & Cấu trúc Trắc nghiệm mới
-                </span>
-              </div>
-
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: "#047857",
-                  background: "#ecfdf5",
-                  border: "1px solid #a7f3d0",
-                  padding: "4px 12px",
-                  borderRadius: 9999,
-                }}
-              >
-                ★ Điểm sư phạm: {matrix.pedagogical_score ?? "Chưa chấm"}/10
-              </div>
-            </div>
-
-            {/* Segmented Colorful Coverage Bar */}
-            <div style={{ marginBottom: "16px" }}>
-              <div
-                style={{
-                  display: "flex",
-                  height: "12px",
-                  borderRadius: "9999px",
-                  overflow: "hidden",
-                  marginBottom: "8px",
-                  background: "#e2e8f0",
-                }}
-              >
-                <div
-                  title={`Nhận biết: ${matrix.distribution?.biet?.percent ?? 0}%`}
-                  style={{ width: `${matrix.distribution?.biet?.percent ?? 0}%`, background: "#38bdf8" }}
-                />
-                <div
-                  title={`Thông hiểu: ${matrix.distribution?.hieu?.percent ?? 0}%`}
-                  style={{ width: `${matrix.distribution?.hieu?.percent ?? 0}%`, background: "#34d399" }}
-                />
-                <div
-                  title={`Vận dụng: ${matrix.distribution?.van_dung?.percent ?? 0}%`}
-                  style={{ width: `${matrix.distribution?.van_dung?.percent ?? 0}%`, background: "#fbbf24" }}
-                />
-                <div
-                  title={`Vận dụng cao: ${matrix.distribution?.van_dung_cao?.percent ?? 0}%`}
-                  style={{ width: `${matrix.distribution?.van_dung_cao?.percent ?? 0}%`, background: "#a855f7" }}
-                />
-              </div>
-
-              {/* 4 Cognitive Levels Grid */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-                  gap: 10,
-                  fontSize: 12.5,
-                }}
-              >
-                {/* 1. Nhận biết */}
-                <div style={{ background: "white", padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#0369a1", fontWeight: 700 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#38bdf8" }} />
-                    Nhận biết
-                  </div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
-                    {matrix.distribution?.biet?.count ?? 0} câu{" "}
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>
-                      ({matrix.distribution?.biet?.percent ?? 0}%)
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Khung chuẩn: ~40%</div>
-                </div>
-
-                {/* 2. Thông hiểu */}
-                <div style={{ background: "white", padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#065f46", fontWeight: 700 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#34d399" }} />
-                    Thông hiểu
-                  </div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
-                    {matrix.distribution?.hieu?.count ?? 0} câu{" "}
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>
-                      ({matrix.distribution?.hieu?.percent ?? 0}%)
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Khung chuẩn: ~30%</div>
-                </div>
-
-                {/* 3. Vận dụng */}
-                <div style={{ background: "white", padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#92400e", fontWeight: 700 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#fbbf24" }} />
-                    Vận dụng
-                  </div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
-                    {matrix.distribution?.van_dung?.count ?? 0} câu{" "}
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>
-                      ({matrix.distribution?.van_dung?.percent ?? 0}%)
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Khung chuẩn: ~20%</div>
-                </div>
-
-                {/* 4. Vận dụng cao */}
-                <div style={{ background: "white", padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, color: "#6b21a8", fontWeight: 700 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#a855f7" }} />
-                    Vận dụng cao
-                  </div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
-                    {matrix.distribution?.van_dung_cao?.count ?? 0} câu{" "}
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>
-                      ({matrix.distribution?.van_dung_cao?.percent ?? 0}%)
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>Khung chuẩn: ~10%</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Findings List */}
+        {/* Findings List (Gom theo từng câu) */}
         <div style={{ display: "flex", flexDirection: "column" }}>
-          {findings.map((f, idx) => {
-            const isBlocker = f.severity === "blocker";
-            const isReview = f.severity === "review";
+          {groupedFindings.map((g, groupIdx) => {
+            const isBlocker = g.highestSeverity === "blocker";
+            const isReview = g.highestSeverity === "review";
             const pillBg = isBlocker ? "#fee2e2" : isReview ? "#ffedd5" : "#eff6ff";
             const pillColor = isBlocker ? "#dc2626" : isReview ? "#ea580c" : "#2563eb";
-            const title =
-              f.title ||
+            const groupHeaderTitle =
+              g.mainTitle ||
               (isBlocker
                 ? "Đáp án có thể sai"
                 : isReview
@@ -800,9 +678,9 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
                 : "Gợi ý kiểm chứng");
 
             return (
-              <React.Fragment key={f.id || idx}>
+              <React.Fragment key={g.key || groupIdx}>
                 <div style={{ padding: "4px 0" }}>
-                  {/* Item Header */}
+                  {/* Header 1 lần duy nhất: Pill Câu N + Pill mức nặng nhất + Cognitive level + Tiêu đề */}
                   <div
                     style={{
                       display: "flex",
@@ -822,43 +700,57 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
                         fontWeight: 700,
                       }}
                     >
-                      Câu {f.ord}
+                      {g.ord !== undefined && g.ord !== null ? `Câu ${g.ord}` : "Khác"}
                     </span>
 
-                    {f.cognitive_level && (
+                    <span
+                      style={{
+                        padding: "2.5px 8px",
+                        borderRadius: 6,
+                        background: isBlocker ? "#fee2e2" : isReview ? "#ffedd5" : "#eff6ff",
+                        color: isBlocker ? "#dc2626" : isReview ? "#ea580c" : "#2563eb",
+                        fontSize: "11.5px",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {isBlocker ? "Lỗi nghiêm trọng" : isReview ? "Cần xem lại" : "Gợi ý"}
+                    </span>
+
+                    {g.cognitiveLevel && (
                       <span
                         style={{
                           padding: "2.5px 10px",
                           borderRadius: 9999,
                           background:
-                            f.cognitive_level === "van_dung_cao"
+                            g.cognitiveLevel === "van_dung_cao"
                               ? "#f3e8ff"
-                              : f.cognitive_level === "van_dung"
+                              : g.cognitiveLevel === "van_dung"
                               ? "#fef3c7"
-                              : f.cognitive_level === "hieu"
+                              : g.cognitiveLevel === "hieu"
                               ? "#ecfdf5"
                               : "#e0f2fe",
                           color:
-                            f.cognitive_level === "van_dung_cao"
+                            g.cognitiveLevel === "van_dung_cao"
                               ? "#7e22ce"
-                              : f.cognitive_level === "van_dung"
+                              : g.cognitiveLevel === "van_dung"
                               ? "#b45309"
-                              : f.cognitive_level === "hieu"
+                              : g.cognitiveLevel === "hieu"
                               ? "#047857"
                               : "#0369a1",
                           fontSize: "11.5px",
                           fontWeight: 700,
                         }}
                       >
-                        {f.cognitive_level === "van_dung_cao"
+                        {g.cognitiveLevel === "van_dung_cao"
                           ? "Vận dụng cao"
-                          : f.cognitive_level === "van_dung"
+                          : g.cognitiveLevel === "van_dung"
                           ? "Vận dụng"
-                          : f.cognitive_level === "hieu"
+                          : g.cognitiveLevel === "hieu"
                           ? "Thông hiểu"
                           : "Nhận biết"}
                       </span>
                     )}
+
                     <span
                       style={{
                         fontSize: "16px",
@@ -866,66 +758,110 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
                         color: "#111827",
                       }}
                     >
-                      {title}
+                      {groupHeaderTitle}
                     </span>
                   </div>
 
-                  {/* Body Lines */}
-                  {(f.expected_answer || f.suggested_answer) && (
+                  {/* 1 dòng đáp án dự kiến & Giải độc lập (nếu có) */}
+                  {(g.expectedAnswer || g.suggestedAnswer) && (
                     <div
                       style={{
                         fontSize: "14px",
                         color: "#1f2937",
-                        marginBottom: 4,
+                        marginBottom: 10,
                         lineHeight: 1.55,
                       }}
                     >
-                      Đáp án dự kiến: <strong>{f.expected_answer || "Chưa có"}</strong>. Kết quả giải độc lập:{" "}
-                      <strong>{f.suggested_answer || "C"}</strong>.
+                      Đáp án dự kiến: <strong>{g.expectedAnswer || "Chưa có"}</strong>. Kết quả giải độc lập:{" "}
+                      <strong>{g.suggestedAnswer || "Chưa có"}</strong>.
                     </div>
                   )}
 
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      color: "#374151",
-                      marginBottom: 4,
-                      lineHeight: 1.55,
-                    }}
-                  >
-                    Lý do: {f.evidence}
-                  </div>
+                  {/* Danh sách gạch đầu dòng — mỗi issue 1 dòng */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+                    {g.items.map((item, itemIdx) => {
+                      const itemIsBlocker = item.severity === "blocker";
+                      const itemIsReview = item.severity === "review";
+                      const itemPillBg = itemIsBlocker ? "#fee2e2" : itemIsReview ? "#ffedd5" : "#eff6ff";
+                      const itemPillColor = itemIsBlocker ? "#dc2626" : itemIsReview ? "#ea580c" : "#2563eb";
+                      const itemPillLabel = itemIsBlocker ? "Lỗi" : itemIsReview ? "Xem lại" : "Gợi ý";
+                      const itemTitle =
+                        item.title ||
+                        (itemIsBlocker
+                          ? "Đáp án có thể sai"
+                          : itemIsReview
+                          ? "Câu hỏi có thể mơ hồ"
+                          : "Gợi ý kiểm chứng");
 
-                  <div
-                    style={{
-                      fontSize: "13.5px",
-                      color: "#6b7280",
-                      marginBottom: 14,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    Nguồn đối chiếu: {f.source_reference || "bài học hoặc trang sách tương ứng, nếu tìm được."}
-                  </div>
+                      return (
+                        <div
+                          key={item.id || itemIdx}
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            justifyContent: "space-between",
+                            gap: 12,
+                            padding: "8px 12px",
+                            background: "#f8fafc",
+                            borderRadius: 8,
+                            border: "1px solid #e2e8f0",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 260, fontSize: "13.5px", lineHeight: 1.5, color: "#374151" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 }}>
+                              <span
+                                style={{
+                                  padding: "1.5px 7px",
+                                  borderRadius: 4,
+                                  background: itemPillBg,
+                                  color: itemPillColor,
+                                  fontSize: "11px",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {itemPillLabel}
+                              </span>
+                              <strong style={{ color: "#0f172a" }}>{itemTitle}</strong>
+                            </div>
+                            <div>
+                              <span style={{ color: "#475569" }}>Lý do: </span>
+                              {item.evidence}
+                            </div>
+                            {item.source_reference ? (
+                              <div style={{ fontSize: "12.5px", color: "#64748b", marginTop: 2 }}>
+                                Nguồn đối chiếu: {item.source_reference}
+                              </div>
+                            ) : null}
+                          </div>
 
-                  {/* Pill Action Buttons */}
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    <button
-                      className="report-action-pill"
-                      onClick={() => setVerifyingFinding(f)}
-                    >
-                      <span>Xem cách kiểm chứng</span>
-                    </button>
-                    <button
-                      className="report-action-pill"
-                      onClick={() => setEditingFinding(f)}
-                    >
-                      <span>Sửa đề</span>
-                    </button>
+                          {/* Nút hành động cho từng dòng */}
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0, marginTop: 2 }}>
+                            <button
+                              className="report-action-pill"
+                              style={{ padding: "3px 10px", fontSize: "12px" }}
+                              onClick={() => setVerifyingFinding(item)}
+                              title="Xem cách kiểm chứng"
+                            >
+                              <span>Chi tiết</span>
+                            </button>
+                            <button
+                              className="report-action-pill"
+                              style={{ padding: "3px 10px", fontSize: "12px" }}
+                              onClick={() => setEditingFinding(item)}
+                              title="Sửa đề"
+                            >
+                              <span>Sửa</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Separator with centered down arrow */}
-                {idx < findings.length - 1 && (
+                {/* Separator with centered down arrow chỉ giữa các câu khác nhau */}
+                {groupIdx < groupedFindings.length - 1 && (
                   <div
                     style={{
                       position: "relative",

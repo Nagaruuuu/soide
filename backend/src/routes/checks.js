@@ -8,6 +8,17 @@ import { solveBlind, counterArgue, llmConfig } from "../modules/llm/provider.js"
 
 const MAX_QUESTIONS = 50;
 
+// Danh mục môn cho phép (khớp dropdown frontend) — chặn tên rác kiểu "Ton".
+const ALLOWED_SUBJECTS = ["Tin học", "Toán", "Ngữ văn", "Tiếng Anh", "Vật lý", "Hóa học", "Lịch sử", "Địa lý", "Sinh học", "GDCD", "Khác"];
+
+function cleanText(s, maxLen) {
+  return String(s ?? "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "") // ký tự điều khiển
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLen);
+}
+
 // TODO(auth): thay bằng user từ session/JWT khi có đăng nhập thật.
 export const CURRENT_USER = "demo-teacher";
 
@@ -34,6 +45,13 @@ export function listChecks(req, res, next) {
 export function createCheck(req, res, next) {
   try {
     const { title = "Bài kiểm tra", subject = "Toán", grade = "", level_expect = "", check_level = "", group_kind = "", exam_text = "", questions = [], has_answer = "auto" } = req.body ?? {};
+    // Làm sạch tên đề/môn/lớp: chống tên rác, ký tự điều khiển, chuỗi quá dài
+    const cleanTitle = cleanText(title, 120) || "Bài kiểm tra";
+    const cleanSubject = cleanText(subject, 30) || "Toán";
+    if (!ALLOWED_SUBJECTS.some((s) => s.toLowerCase() === cleanSubject.toLowerCase())) {
+      throw err("BAD_SUBJECT", `Môn không hợp lệ. Chọn trong: ${ALLOWED_SUBJECTS.join(", ")}.`, 400);
+    }
+    const cleanGrade = cleanText(grade, 20);
     const rawLen = typeof exam_text === "string" && exam_text ? exam_text.length : JSON.stringify(questions ?? "").length;
     if (rawLen > 20_000) throw err("INPUT_TOO_LONG", "Nội dung quá dài (tối đa ~20.000 ký tự). Hãy chia nhỏ.", 413);
 
@@ -43,7 +61,7 @@ export function createCheck(req, res, next) {
     if (parsed.length > MAX_QUESTIONS) throw err("INPUT_TOO_LONG", `Tối đa ${MAX_QUESTIONS} câu/lần.`, 413);
 
     const id = randomUUID();
-    const group = group_kind || guessGroup(subject);
+    const group = group_kind || guessGroup(cleanSubject);
     // check_level từ FE (standard|deep): lưu vào level_expect để run dùng
     const level = check_level || level_expect || "standard";
     // has_answer: true | false | "auto" (mặc định). auto: <30% câu có đáp án -> coi như không có.
@@ -53,7 +71,7 @@ export function createCheck(req, res, next) {
       ? detectedHasAnswer
       : has_answer === true || has_answer === 1 || has_answer === "true";
     db.prepare("INSERT INTO checks(id,user_id,title,subject,grade,level_expect,group_kind,has_answer,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .run(id, CURRENT_USER, title, subject, grade, level, group, hasAnswer ? 1 : 0, "created", new Date().toISOString());
+      .run(id, CURRENT_USER, cleanTitle, cleanSubject, cleanGrade, level, group, hasAnswer ? 1 : 0, "created", new Date().toISOString());
     const qins = db.prepare("INSERT INTO questions(id,check_id,ord,content,opt_a,opt_b,opt_c,opt_d,expected_answer,explanation) VALUES(?,?,?,?,?,?,?,?,?,?)");
     parsed.forEach((q, i) => qins.run(randomUUID(), id, i + 1, q.content ?? "", q.opt_a ?? "", q.opt_b ?? "", q.opt_c ?? "", q.opt_d ?? "", q.expected_answer ?? "", q.explanation ?? ""));
     db.prepare("UPDATE users SET used_this_month = used_this_month + ? WHERE id=?").run(parsed.length, CURRENT_USER);
@@ -168,12 +186,14 @@ export function getReport(req, res, next) {
     const pending = findings.filter((f) => f.status === "pending");
     const needsExpert = findings.filter((f) => f.status === "needs_expert");
     const okQ = db.prepare("SELECT COUNT(*) AS c FROM questions WHERE check_id=? AND id NOT IN (SELECT question_id FROM findings WHERE severity != 'ok')").get(id).c;
+    // Đếm theo MỨC ĐỘ để bảng tổng khớp màu thẻ cảnh báo (không theo trạng thái duyệt)
+    const sev = db.prepare("SELECT severity, COUNT(*) AS c FROM findings WHERE question_id IN (SELECT id FROM questions WHERE check_id=?) GROUP BY severity").all(id);
+    const severity_counts = { blocker: 0, review: 0, hint: 0 };
+    for (const r of sev) if (severity_counts[r.severity] !== undefined) severity_counts[r.severity] = r.c;
     const cfg = llmConfig();
-    const matrix_gdpt_2018 = computeMatrixGDPT2018(questions);
     res.json({
       check,
-      summary: { total_questions: nQ, confirmed: confirmed.length, pending: pending.length, needs_expert: needsExpert.length, ok_questions: okQ },
-      matrix_gdpt_2018,
+      summary: { total_questions: nQ, confirmed: confirmed.length, pending: pending.length, needs_expert: needsExpert.length, ok_questions: okQ, severity_counts },
       findings,
       confirmed, pending, needs_expert: needsExpert,
       scope_note: scopeNote(check),
@@ -198,82 +218,6 @@ export function getMe(req, res, next) {
     const user = db.prepare("SELECT id, display_name, plan, monthly_quota, used_this_month FROM users WHERE id=?").get("demo-teacher");
     res.json({ user });
   } catch (e) { next(e); }
-}
-
-export function computeMatrixGDPT2018(questions = []) {
-  if (!questions || questions.length === 0) {
-    // Đề rỗng: trả rỗng trung thực, KHÔNG bịa số liệu mẫu
-    return {
-      total: 0,
-      available: false,
-      distribution: {
-        biet: { count: 0, percent: 0, label: "Nhận biết", target: "40%" },
-        hieu: { count: 0, percent: 0, label: "Thông hiểu", target: "30%" },
-        van_dung: { count: 0, percent: 0, label: "Vận dụng", target: "20%" },
-        van_dung_cao: { count: 0, percent: 0, label: "Vận dụng cao", target: "10%" },
-      },
-      pedagogical_score: null,
-      pedagogical_assessment: "Chưa có câu hỏi nào để đánh giá ma trận.",
-      recommendation: "Khung ma trận tham chiếu chuẩn: 40% Biết · 30% Hiểu · 20% Vận dụng · 10% Vận dụng cao.",
-    };
-  }
-
-  const counts = { biet: 0, hieu: 0, van_dung: 0, van_dung_cao: 0 };
-
-  const categorizedQuestions = questions.map((q) => {
-    const text = (q.content || "").toLowerCase();
-    let level = "biet";
-    if (/tối ưu|cực trị|lớn nhất|nhỏ nhất|phối hợp|chứng minh|thực tiễn cao|nâng cao/.test(text)) {
-      level = "van_dung_cao";
-      counts.van_dung_cao++;
-    } else if (/tính|bằng bao nhiêu|giá trị|vận tốc|kết quả|thu được|thực hiện phép/.test(text)) {
-      level = "van_dung";
-      counts.van_dung++;
-    } else if (/tại sao|giải thích|vì sao|phân biệt|so sánh|nguyên nhân|chức năng|ý nghĩa/.test(text)) {
-      level = "hieu";
-      counts.hieu++;
-    } else {
-      level = "biet";
-      counts.biet++;
-    }
-
-    return { ...q, cognitive_level: level };
-  });
-
-  // Phần trăm làm tròn theo largest-remainder để tổng luôn = 100
-  const total = questions.length;
-  const raw = [counts.biet, counts.hieu, counts.van_dung, counts.van_dung_cao].map((c) => (c / total) * 100);
-  const floors = raw.map(Math.floor);
-  let rest = 100 - floors.reduce((a, b) => a + b, 0);
-  const order = raw.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0]);
-  for (let k = 0; k < order.length && rest > 0; k++, rest--) floors[order[k][1]]++;
-  const [pBiet, pHieu, pVD, pVDC] = floors;
-
-  let assessment = "Độ phủ ma trận hài hòa theo định hướng kiểm tra đánh giá năng lực của Bộ GD&ĐT.";
-  if (counts.van_dung_cao === 0 && total >= 5) {
-    assessment = "Đề thi đang tập trung ở mức Nhận biết - Thông hiểu; nên bổ sung thêm 5-10% câu hỏi Vận dụng cao để tăng tính phân hóa.";
-  } else if (pBiet > 55) {
-    assessment = "Tỷ lệ câu hỏi Nhận biết đang chiếm trên 50%; phù hợp kiểm tra định kỳ cơ bản nhưng cần thêm bài toán vận dụng.";
-  }
-
-  // Điểm suy từ dữ liệu thật: phủ đủ 4 mức + cân đối tỉ trọng
-  const levelsPresent = [counts.biet, counts.hieu, counts.van_dung, counts.van_dung_cao].filter((c) => c > 0).length;
-  const balanced = pBiet >= 25 && pBiet <= 55 && (pHieu + pVD + pVDC) >= 40;
-  const pedagogical_score = Math.min(10, 6.5 + levelsPresent * 0.5 + (balanced ? 1.0 : 0) + (counts.van_dung_cao > 0 ? 0.5 : 0));
-
-  return {
-    total,
-    categorizedQuestions,
-    distribution: {
-      biet: { count: counts.biet, percent: pBiet, label: "Nhận biết", target: "40%" },
-      hieu: { count: counts.hieu, percent: pHieu, label: "Thông hiểu", target: "30%" },
-      van_dung: { count: counts.van_dung, percent: pVD, label: "Vận dụng", target: "20%" },
-      van_dung_cao: { count: counts.van_dung_cao, percent: pVDC, label: "Vận dụng cao", target: "10%" },
-    },
-    pedagogical_score: Number(pedagogical_score.toFixed(1)),
-    pedagogical_assessment: assessment,
-    recommendation: "Khung ma trận tham chiếu chuẩn: 40% Biết · 30% Hiểu · 20% Vận dụng · 10% Vận dụng cao.",
-  };
 }
 
 function guessGroup(subject = "") {

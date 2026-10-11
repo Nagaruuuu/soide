@@ -1,0 +1,1 @@
+{"label":"wrong-expected","question":{"_num":6,"content":"2 + 3 x 4 bằng bao nhiêu?","opt_a":"20","opt_b":"14","opt_c":"12","opt_d":"24","expected_answer":"A"},"mock":{"questionNumber":6,"status":"solved","answer":"B","reasoningSummary":"Nhân trước cộng sau: 3 x 4 = 12, 2 + 12 = 14.","assumptions":[],"alternativeAnswers":[],"verificationMethod":"computed","warnings":[]}}

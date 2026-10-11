@@ -1,0 +1,7 @@
+Tin học 10 — Tài liệu ôn tập mẫu (nội dung tự soạn cho kiểm thử, không trích SGK).
+
+Chương 1: Máy tính và xã hội tri thức
+Máy tính là thiết bị điện tử thực hiện tự động các thao tác xử lý thông tin theo chương trình. Mọi dữ liệu trong máy tính đều được biểu diễn dưới dạng nhị phân, tức chỉ gồm hai ký hiệu 0 và 1. Đơn vị nhỏ nhất là bit, tám bit tạo thành một byte.
+
+Bài 2: Mạng máy tính và Internet
+Mạng máy tính là tập hợp các máy tính được kết nối để chia sẻ tài nguyên và trao đổi thông tin. Internet là mạng toàn cầu kết nối hàng tỷ thiết bị. Mỗi thiết bị khi tham gia mạng cần có địa chỉ để phân biệt, ví dụ địa chỉ IP.

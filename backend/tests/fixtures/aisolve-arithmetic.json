@@ -1,0 +1,1 @@
+{"label":"arithmetic","question":{"_num":5,"content":"8 + 4 bằng bao nhiêu?","opt_a":"12","opt_b":"14","opt_c":"16","opt_d":"20","expected_answer":"A"},"mock":{"questionNumber":5,"status":"solved","answer":"A","reasoningSummary":"8 + 4 = 12.","assumptions":[],"alternativeAnswers":[],"verificationMethod":"computed","warnings":[]}}

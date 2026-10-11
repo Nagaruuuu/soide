@@ -1,0 +1,30 @@
+import { Router } from "express";
+import { createCheck, runCheck, getResults, review, getReport, removeCheck, listChecks, getMe } from "./checks.js";
+import filesRouter from "./files.js";
+import validateRouter from "./validate.js";
+import aiReviewRouter from "./aiReview.js";
+import aiSolveRouter from "./aiSolve.js";
+import textbooksRouter from "./textbooks.js";
+import { parseExamText } from "../modules/parser/parser.js";
+const r = Router();
+r.use(filesRouter);
+r.use(validateRouter);
+r.use(aiReviewRouter);
+r.use(aiSolveRouter);
+r.use(textbooksRouter);
+r.get("/me", getMe);
+r.get("/checks", listChecks);
+r.post("/checks", createCheck);
+r.post("/checks/preview", (req, res) => {
+  const { exam_text = "" } = req.body ?? {};
+  if (String(exam_text).length > 20_000) return res.status(413).json({ error_code: "INPUT_TOO_LONG", message_vi: "Nội dung quá dài (tối đa ~20.000 ký tự).", retryable: false });
+  const parsed = parseExamText(exam_text);
+  res.json({ questions: parsed.slice(0, 50), warnings: parsed.warnings || [] });
+});
+r.post("/checks/:id/run", runCheck);
+r.get("/checks/:id/results", getResults);
+r.patch("/results/:qid", review);
+r.get("/checks/:id/report", getReport);
+r.delete("/checks/:id", removeCheck);
+export default r;
+

@@ -1,0 +1,1 @@
+{"label":"essay","question":{"_num":2,"content":"Tính giá trị của 15 + 27.","opt_a":"","opt_b":"","opt_c":"","opt_d":"","expected_answer":"42"},"mock":{"questionNumber":2,"status":"solved","answer":"42","reasoningSummary":"15 + 27 = 42.","assumptions":[],"alternativeAnswers":[],"verificationMethod":"computed","warnings":[]}}

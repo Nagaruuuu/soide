@@ -32,11 +32,6 @@ const MOCK_SAMPLE_REPORT = {
       van_dung: { count: 8, percent: 20, label: "Vận dụng", target: "20%" },
       van_dung_cao: { count: 4, percent: 10, label: "Vận dụng cao", target: "10%" },
     },
-    format_structure: {
-      part1: { count: 24, percent: 60, label: "Phần I: Nhiều lựa chọn (4 PA)" },
-      part2: { count: 8, percent: 20, label: "Phần II: Đúng / Sai (4 ý)" },
-      part3: { count: 8, percent: 20, label: "Phần III: Trả lời ngắn" },
-    },
     pedagogical_score: 9.4,
     pedagogical_assessment: "Độ phủ ma trận chuẩn mực theo định hướng phát triển phẩm chất, năng lực CT GDPT 2018; phân hóa tốt giữa các nhóm học sinh.",
     recommendation: "Tỷ lệ phân bố 4 mức độ nhận thức đạt chuẩn 40 - 30 - 20 - 10 của Bộ GD&ĐT.",
@@ -92,7 +87,6 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
   const [currentId, setCurrentId] = useState(checkId);
   const [verifyingFinding, setVerifyingFinding] = useState(null);
   const [editingFinding, setEditingFinding] = useState(null);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
   useEffect(() => {
     setCurrentId(checkId);
@@ -154,9 +148,7 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
       md += `- Nhận biết: ${m.distribution?.biet?.count ?? 0} câu (${m.distribution?.biet?.percent ?? 0}%) [Khung chuẩn ~40%]\n`;
       md += `- Thông hiểu: ${m.distribution?.hieu?.count ?? 0} câu (${m.distribution?.hieu?.percent ?? 0}%) [Khung chuẩn ~30%]\n`;
       md += `- Vận dụng: ${m.distribution?.van_dung?.count ?? 0} câu (${m.distribution?.van_dung?.percent ?? 0}%) [Khung chuẩn ~20%]\n`;
-      md += `- Vận dụng cao: ${m.distribution?.van_dung_cao?.count ?? 0} câu (${m.distribution?.van_dung_cao?.percent ?? 0}%) [Khung chuẩn ~10%]\n`;
-      md += `- Điểm đánh giá sư phạm: ${m.pedagogical_score ?? "Chưa có"} / 10\n`;
-      md += `- Nhận xét sư phạm: ${m.pedagogical_assessment || "Chưa có đánh giá."}\n\n`;
+      md += `- Vận dụng cao: ${m.distribution?.van_dung_cao?.count ?? 0} câu (${m.distribution?.van_dung_cao?.percent ?? 0}%) [Khung chuẩn ~10%]\n\n`;
     }
 
     md += `## DANH SÁCH CHI TIẾT CẢNH BÁO\n\n`;
@@ -274,7 +266,6 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
           </tr>
         </tbody>
       </table>
-      <div class="note"><strong>Nhận xét ma trận:</strong> ${m.pedagogical_assessment || "Độ phủ ma trận hài hòa theo chuẩn CT GDPT 2018."}</div>
 
       <h2>III. TỔNG HỢP KẾT QUẢ ĐỐI SOÁT & DANH MỤC CÂU CẦN ĐIỀU CHỈNH</h2>
       <ul>
@@ -407,81 +398,18 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
 
   return (
     <div className="spec-container" style={{ maxWidth: 880 }}>
-      {/* Banner Xuất Biên Bản cho Tổ Chuyên Môn */}
-      <div
-        className="no-print"
-        style={{
-          background: "linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%)",
-          border: "1px solid #bfdbfe",
-          borderRadius: 14,
-          padding: "12px 18px",
-          marginBottom: 14,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 12,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 22 }}>📑</span>
-          <div>
-            <div style={{ fontWeight: 800, color: "#1e3a8a", fontSize: 13.5 }}>
-              Biên bản Họp Thẩm định & Duyệt đề Tổ Chuyên môn
-            </div>
-            <div style={{ fontSize: 12, color: "#475569" }}>
-              Đầy đủ Quốc hiệu, Tiêu ngữ, Ma trận GDPT 2018, số liệu đối soát & 3 khối chữ ký lưu hồ sơ.
-            </div>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={handleExportWord}
-            style={{ fontWeight: 700, padding: "7px 14px", display: "inline-flex", alignItems: "center", gap: 6 }}
-          >
-            <span>📄 Tải File Word (.doc)</span>
-          </button>
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={handleExportPDF}
-            style={{ fontWeight: 700, padding: "7px 14px", color: "#b91c1c", borderColor: "#fca5a5", background: "#ffffff" }}
-          >
-            <span>🖨️ In / Xuất PDF</span>
-          </button>
-        </div>
-      </div>
-
       {/* Top Action Bar with Export Word, Export PDF, Copy Markdown */}
       <div
         className="no-print"
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
           gap: 12,
           marginBottom: 16,
           flexWrap: "wrap",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#4b5563" }}>Xem đề thi:</span>
-          <select
-            className="pill-select"
-            style={{ minWidth: 260, padding: "6px 14px", fontSize: 13 }}
-            value={currentId || "sample-demo"}
-            onChange={(e) => setCurrentId(e.target.value)}
-          >
-            {allChecks.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title || "Bài kiểm tra"} - {c.subject} ({new Date(c.created_at).toLocaleDateString("vi-VN")})
-              </option>
-            ))}
-            <option value="sample-demo">★ Đề mẫu minh họa (Tin học 10 · 40 câu)</option>
-          </select>
-        </div>
-
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button
             className="btn btn-secondary btn-sm"
@@ -563,32 +491,13 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
               Báo cáo Phản biện Chéo Đề thi
             </h1>
             <div style={{ fontSize: "14.5px", color: "#6b7280", fontWeight: 500 }}>
-              {check.title ? `${check.title} · ${summary.total_questions || 40} câu` : `Đề kiểm tra ${check.subject || "Tin học"} ${check.grade || "10"} · ${summary.total_questions || 40} câu`} · Trợ lý phản biện chéo hỗ trợ giáo viên
+              {check.title ? `${check.title} · ${summary.total_questions ?? 0} câu` : `Đề kiểm tra ${check.subject || "Tin học"} ${check.grade || "10"} · ${summary.total_questions ?? 0} câu`} · Trợ lý phản biện chéo hỗ trợ giáo viên
             </div>
           </div>
 
           {/* Right Action Icons & Warning Badge */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <button
-                onClick={() => setShowUpgradeModal(true)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#2563eb",
-                  fontWeight: 600,
-                  fontSize: 14,
-                  cursor: "pointer",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 4,
-                  padding: "4px 8px",
-                  borderRadius: 6,
-                }}
-              >
-                <span>✦</span> Upgrade
-              </button>
-
               <button
                 onClick={handleCopyMarkdown}
                 title="Chia sẻ / Sao chép"
@@ -712,35 +621,6 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
             </div>
             <div className="kpi-label" style={{ fontSize: "13.5px", color: "#4b5563", marginTop: 6, fontWeight: 500 }}>
               Có dấu hiệu sai
-            </div>
-          </div>
-        </div>
-
-        {/* Banner Định vị Trợ lý Phản biện Chéo & Cơ chế Giải Độc lập */}
-        <div
-          style={{
-            background: "linear-gradient(135deg, #f0fdf4 0%, #f0f9ff 100%)",
-            border: "1px solid #bbf7d0",
-            borderRadius: "14px",
-            padding: "15px 18px",
-            marginBottom: "22px",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "12px",
-            fontSize: "13px",
-            color: "#1e3a5f",
-            lineHeight: 1.55,
-          }}
-        >
-          <span style={{ fontSize: "22px", marginTop: "1px", flexShrink: 0 }}>🛡️</span>
-          <div>
-            <div style={{ fontWeight: 800, color: "#0f766e", marginBottom: 5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 13.5 }}>Nguyên tắc Phản biện Chéo & Giải Độc lập</span>
-              <span style={{ fontSize: 11, background: "#ccfbf1", color: "#115e59", padding: "1.5px 8px", borderRadius: 9999, fontWeight: 700 }}>AI Đồng hành · Không thay thế con người</span>
-              <span style={{ fontSize: 11, background: "#e0f2fe", color: "#0369a1", padding: "1.5px 8px", borderRadius: 9999, fontWeight: 700 }}>Hạn chế tối đa Ảo giác AI</span>
-            </div>
-            <div style={{ color: "#334155" }}>
-              Hệ thống tự động giải bài độc lập <strong>mà hoàn toàn không nhìn trước đáp án</strong> của giáo viên nhằm loại bỏ thiên kiến xác nhận, kết hợp Solver số học xác định để hạn chế tối đa ảo giác AI. <strong>Mọi cảnh báo chỉ đóng vai trò phản biện tham khảo — Thầy/Cô và Tổ chuyên môn luôn giữ quyền quyết định cuối cùng</strong>.
             </div>
           </div>
         </div>
@@ -901,133 +781,8 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
                 </div>
               </div>
             </div>
-
-            {/* Cấu trúc Trắc nghiệm mới (Định dạng Bộ GD&ĐT từ 2025) */}
-            <div
-              style={{
-                background: "white",
-                borderRadius: 12,
-                padding: "12px 16px",
-                border: "1px solid #e2e8f0",
-                marginBottom: "12px",
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 16,
-                alignItems: "center",
-                justifyContent: "space-between",
-                fontSize: 13,
-              }}
-            >
-              <div>
-                <strong style={{ color: "#1e293b" }}>Cấu trúc đề mới:</strong>{" "}
-                <span style={{ color: "#64748b" }}>
-                  {matrix.format_structure?.part1?.label || "Phần I"} (<strong>{matrix.format_structure?.part1?.count ?? 0}</strong>) •{" "}
-                  {matrix.format_structure?.part2?.label || "Phần II"} (<strong>{matrix.format_structure?.part2?.count ?? 0}</strong>) •{" "}
-                  {matrix.format_structure?.part3?.label || "Phần III"} (<strong>{matrix.format_structure?.part3?.count ?? 0}</strong>)
-                </span>
-              </div>
-              <span style={{ fontSize: 11.5, background: "#f1f5f9", padding: "3px 8px", borderRadius: 6, color: "#475569", fontWeight: 600 }}>
-                Chuẩn QĐ 764/QĐ-BGDĐT
-              </span>
-            </div>
-
-            {/* Nhận xét Sư phạm của AI */}
-            <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.55 }}>
-              💡 <strong>Nhận xét sư phạm:</strong> {matrix.pedagogical_assessment || "Chưa có đánh giá cho đề này."}
-            </div>
           </div>
         )}
-
-        {/* Khối Minh chứng Thực nghiệm & Hiệu quả Đối soát Thực tế */}
-        <div
-          style={{
-            background: "linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)",
-            border: "1px solid #cbd5e1",
-            borderRadius: "16px",
-            padding: "20px 22px",
-            marginBottom: "26px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 18 }}>📈</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: "#0f172a" }}>
-                Minh chứng Thực nghiệm & Hiệu quả Đối soát Thực tế
-              </span>
-            </div>
-            <span style={{ fontSize: 11.5, background: "#e0f2fe", color: "#0369a1", padding: "3px 10px", borderRadius: 9999, fontWeight: 700 }}>
-              Số liệu từ đề thi hiện tại
-            </span>
-          </div>
-
-          {/* 4 Chỉ số thực tế của đề này (không dùng số liệu quảng cáo) */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-              gap: 12,
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0284c7" }}>{summary.total_questions ?? findings.length ?? 0}</div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginTop: 2 }}>Câu hỏi trong đề</div>
-              <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>Đề thi hiện tại</div>
-            </div>
-            <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#ea580c" }}>{blockerCount}</div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginTop: 2 }}>Cảnh báo cần xử lý</div>
-              <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>Mức Chặn lại trong đề này</div>
-            </div>
-            <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#16a34a" }}>{reviewCount}</div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginTop: 2 }}>Cần xem lại</div>
-              <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>Mức Nên xem trong đề này</div>
-            </div>
-            <div style={{ background: "#ffffff", padding: "12px 14px", borderRadius: 12, border: "1px solid #e2e8f0" }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#7c3aed" }}>{summary.confirmed ?? 0}</div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginTop: 2 }}>Đã xác nhận</div>
-              <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>GV đã duyệt trong đề này</div>
-            </div>
-          </div>
-
-          {/* Bảng so sánh thực nghiệm */}
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5, textAlign: "left" }}>
-              <thead>
-                <tr style={{ background: "#e2e8f0", color: "#334155" }}>
-                  <th style={{ padding: "8px 12px", borderRadius: "6px 0 0 6px" }}>Tiêu chí đối chứng</th>
-                  <th style={{ padding: "8px 12px" }}>Rà soát thủ công</th>
-                  <th style={{ padding: "8px 12px" }}>Soi Đề AI (Phản biện chéo)</th>
-                  <th style={{ padding: "8px 12px", borderRadius: "0 6px 6px 0" }}>Hiệu quả ghi nhận</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
-                  <td style={{ padding: "8px 12px", fontWeight: 600 }}>Thời gian rà soát / đề 40 câu</td>
-                  <td style={{ padding: "8px 12px", color: "#64748b" }}>45 - 60 phút</td>
-                  <td style={{ padding: "8px 12px", color: "#16a34a", fontWeight: 700 }}>5 - 8 phút</td>
-                  <td style={{ padding: "8px 12px", fontWeight: 700, color: "#0369a1" }}>Giảm 82.2% tải việc</td>
-                </tr>
-                <tr style={{ borderBottom: "1px solid #e2e8f0" }}>
-                  <td style={{ padding: "8px 12px", fontWeight: 600 }}>Tỷ lệ sót lỗi chi tiết (lệch đáp án, câu mờ)</td>
-                  <td style={{ padding: "8px 12px", color: "#64748b" }}>~15 - 18%</td>
-                  <td style={{ padding: "8px 12px", color: "#16a34a", fontWeight: 700 }}>&lt; 1.2%</td>
-                  <td style={{ padding: "8px 12px", fontWeight: 700, color: "#0369a1" }}>Hạn chế tối đa sót lọt</td>
-                </tr>
-                <tr>
-                  <td style={{ padding: "8px 12px", fontWeight: 600 }}>Cơ chế tránh thiên kiến xác nhận</td>
-                  <td style={{ padding: "8px 12px", color: "#64748b" }}>Dễ bị cuốn theo đáp án có sẵn</td>
-                  <td style={{ padding: "8px 12px", color: "#16a34a", fontWeight: 700 }}>Giải mù độc lập (Blind Solving)</td>
-                  <td style={{ padding: "8px 12px", fontWeight: 700, color: "#0369a1" }}>Khách quan, hạn chế tối đa ảo giác AI</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Divider */}
-        <hr style={{ border: "none", borderTop: "1px solid #f1f5f9", marginBottom: 26 }} />
 
         {/* Findings List */}
         <div style={{ display: "flex", flexDirection: "column" }}>
@@ -1125,7 +880,7 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
                         lineHeight: 1.55,
                       }}
                     >
-                      Đáp án dự kiến: <strong>{f.expected_answer || "B"}</strong>. Kết quả giải độc lập:{" "}
+                      Đáp án dự kiến: <strong>{f.expected_answer || "Chưa có"}</strong>. Kết quả giải độc lập:{" "}
                       <strong>{f.suggested_answer || "C"}</strong>.
                     </div>
                   )}
@@ -1206,56 +961,6 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
               </React.Fragment>
             );
           })}
-        </div>
-
-        {/* Bottom Quick Export Toolbar */}
-        <div
-          className="no-print"
-          style={{
-            marginTop: 28,
-            padding: "16px 20px",
-            background: "#f8fafc",
-            border: "1px solid #e2e8f0",
-            borderRadius: 14,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 13.5, color: "#1e293b" }}>
-              Hoàn tất rà soát? Xuất hồ sơ lưu trữ cho Tổ chuyên môn
-            </div>
-            <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
-              Biên bản Word có sẵn bảng ma trận GDPT 2018 và 3 khối ký tên hoặc In ấn trực tiếp.
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={handleExportWord}
-              style={{ fontWeight: 700, padding: "7px 14px" }}
-            >
-              <span>📄 Xuất Word (.doc)</span>
-            </button>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={handleExportPDF}
-              style={{ fontWeight: 700, padding: "7px 14px", color: "#b91c1c", borderColor: "#fca5a5", background: "#ffffff" }}
-            >
-              <span>🖨️ In / Xuất PDF</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Official Empirical Summary for Print */}
-        <div className="print-only" style={{ marginTop: 24, fontSize: 11 }}>
-          <div style={{ fontWeight: "bold", textTransform: "uppercase", marginBottom: 6 }}>
-            Phụ lục: Minh chứng thực nghiệm đối soát đề thi
-          </div>
-          <div>• Đề này: {summary.total_questions ?? 0} câu | Cảnh báo Chặn lại: {blockerCount} | Cần xem lại: {reviewCount} | Đã xác nhận: {summary.confirmed ?? 0}. Số liệu chỉ phản ánh đúng đề thi này.</div>
         </div>
 
         {/* Signatures for Print / PDF Export */}
@@ -1486,51 +1191,6 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal 3: Upgrade Info */}
-      {showUpgradeModal && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(15, 23, 42, 0.4)",
-            backdropFilter: "blur(4px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: 20,
-          }}
-          onClick={() => setShowUpgradeModal(false)}
-        >
-          <div
-            className="spec-card"
-            style={{
-              maxWidth: 480,
-              width: "100%",
-              padding: 28,
-              textAlign: "center",
-              margin: 0,
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontSize: 36, marginBottom: 12 }}>✦</div>
-            <h3 style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginBottom: 8 }}>
-              Gói Giáo viên Soi Đề AI
-            </h3>
-            <p style={{ fontSize: 14, color: "#6b7280", marginBottom: 20, lineHeight: 1.6 }}>
-              Thầy/Cô đang sử dụng phiên bản Giáo viên Tiêu chuẩn (30 lượt kiểm tra mỗi tháng). Đã kích hoạt đầy đủ bộ giải toán học số, đối soát ngôn ngữ và trích xuất tệp Word/PDF.
-            </p>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => setShowUpgradeModal(false)}
-              style={{ width: "100%", padding: "10px 0" }}
-            >
-              Tiếp tục sử dụng
-            </button>
           </div>
         </div>
       )}

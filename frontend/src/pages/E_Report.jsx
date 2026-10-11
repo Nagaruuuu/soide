@@ -96,6 +96,10 @@ const exportMenuItemStyle = {
   textAlign: "left",
 };
 
+// Severity ranking: blocker > review > hint > info
+const SEVERITY_RANK = { blocker: 3, review: 2, hint: 1, info: 0 };
+const getSeverityRank = (sev) => SEVERITY_RANK[sev] ?? 0;
+
 export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) {
   const [data, setData] = useState(null);
   const [allChecks, setAllChecks] = useState([]);
@@ -122,6 +126,46 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [exportOpen]);
+
+  // Gom findings theo câu (f.ord) — giữ đúng thứ tự xuất hiện, câu không số gom nhóm "Khác"
+  // Khai báo HOOK ở đầu component TRƯỚC mọi return có điều kiện để tuân thủ React Rules of Hooks
+  const groupedFindings = useMemo(() => {
+    const findings = data?.findings || [];
+    const groups = [];
+    const map = new Map();
+
+    findings.forEach((f) => {
+      const key = f.ord !== undefined && f.ord !== null ? String(f.ord) : "Khác";
+      if (!map.has(key)) {
+        const group = {
+          key,
+          ord: f.ord,
+          items: [],
+          highestSeverity: f.severity || "review",
+          cognitiveLevel: f.cognitive_level || null,
+          expectedAnswer: f.expected_answer || null,
+          suggestedAnswer: f.suggested_answer || null,
+          mainTitle: f.title || "",
+        };
+        map.set(key, group);
+        groups.push(group);
+      }
+      const g = map.get(key);
+      g.items.push(f);
+
+      // Cập nhật mức độ nặng nhất & tiêu đề chính từ finding nặng nhất
+      if (getSeverityRank(f.severity) > getSeverityRank(g.highestSeverity)) {
+        g.highestSeverity = f.severity;
+        if (f.title) g.mainTitle = f.title;
+      }
+      if (!g.mainTitle && f.title) g.mainTitle = f.title;
+      if (!g.cognitiveLevel && f.cognitive_level) g.cognitiveLevel = f.cognitive_level;
+      if (!g.expectedAnswer && f.expected_answer) g.expectedAnswer = f.expected_answer;
+      if (!g.suggestedAnswer && f.suggested_answer) g.suggestedAnswer = f.suggested_answer;
+    });
+
+    return groups;
+  }, [data]);
 
   async function loadReportData() {
     setLoading(true);
@@ -357,48 +401,6 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
   const check = activeData.check || {};
   const summary = activeData.summary || {};
   const findings = activeData.findings || [];
-
-  // Severity ranking: blocker > review > hint > info
-  const SEVERITY_RANK = { blocker: 3, review: 2, hint: 1, info: 0 };
-  const getSeverityRank = (sev) => SEVERITY_RANK[sev] ?? 0;
-
-  // Gom findings theo câu (f.ord) — giữ đúng thứ tự xuất hiện, câu không số gom nhóm "Khác"
-  const groupedFindings = useMemo(() => {
-    const groups = [];
-    const map = new Map();
-
-    findings.forEach((f) => {
-      const key = f.ord !== undefined && f.ord !== null ? String(f.ord) : "Khác";
-      if (!map.has(key)) {
-        const group = {
-          key,
-          ord: f.ord,
-          items: [],
-          highestSeverity: f.severity || "review",
-          cognitiveLevel: f.cognitive_level || null,
-          expectedAnswer: f.expected_answer || null,
-          suggestedAnswer: f.suggested_answer || null,
-          mainTitle: f.title || "",
-        };
-        map.set(key, group);
-        groups.push(group);
-      }
-      const g = map.get(key);
-      g.items.push(f);
-
-      // Cập nhật mức độ nặng nhất & tiêu đề chính từ finding nặng nhất
-      if (getSeverityRank(f.severity) > getSeverityRank(g.highestSeverity)) {
-        g.highestSeverity = f.severity;
-        if (f.title) g.mainTitle = f.title;
-      }
-      if (!g.mainTitle && f.title) g.mainTitle = f.title;
-      if (!g.cognitiveLevel && f.cognitive_level) g.cognitiveLevel = f.cognitive_level;
-      if (!g.expectedAnswer && f.expected_answer) g.expectedAnswer = f.expected_answer;
-      if (!g.suggestedAnswer && f.suggested_answer) g.suggestedAnswer = f.suggested_answer;
-    });
-
-    return groups;
-  }, [findings]);
 
   // Compute stat counts — theo MỨC ĐỘ (severity) để khớp màu thẻ cảnh báo,
   // không theo trạng thái duyệt (confirmed/pending) như trước

@@ -9,6 +9,7 @@ NGUYÊN TẮC BẮT BUỘC:
 - KHÔNG trả về trường confidence dưới mọi hình thức.
 - reference: chỉ ghi khi đề bài đã cung cấp nguồn (tên bài/mục trong đề); TUYỆT ĐỐI không bịa tên SGK, bài học, số trang.
 - Với câu nhiều đáp án tùy cách hiểu: nêu rõ ĐIỀU KIỆN/cách hiểu dẫn tới từng đáp án.
+- Nếu câu KHÔNG kèm đáp án: có thể gợi ý đáp án trong suggestion (ghi rõ là đề xuất, GV chốt), không báo WRONG_KEY.
 - Không có vấn đề thì trả {"findings": []}. Không cảnh báo không có nghĩa câu chắc chắn đúng.
 CHỈ trả JSON: {"findings": [{"questionNumber": <số trong thẻ <question number="N">>, "issueType": "AMBIGUOUS|MISSING_DATA|MULTI_VALID|MISMATCH_OPTIONS|WRONG_KEY|OUT_OF_SCOPE|CONTRADICTION", "severity": "high|medium|low", "evidence": "<trích đoạn nguyên văn>", "explanation": "<phần nào gây vấn đề, vì sao>", "suggestion": "<GV xem xét sửa thế nào>", "reference": "<chỉ khi có nguồn thật, nếu không bỏ trống>"}]}`;
 

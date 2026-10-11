@@ -98,7 +98,7 @@ test("compare: match/mismatch/needs_review, không kết luận bên đúng", ()
   assert.match(mm.reason, /chưa kết luận bên nào đúng/);
   assert.equal(compareSolution({ questionNumber: 1, status: "ambiguous", answer: null }, "A").verdict, "needs_review");
   assert.equal(compareSolution({ questionNumber: 1, status: "failed", answer: null }, "A").verdict, "needs_review");
-  assert.equal(compareSolution({ questionNumber: 1, status: "solved", answer: "B" }, "").verdict, "needs_review");
+  assert.equal(compareSolution({ questionNumber: 1, status: "solved", answer: "B" }, "").verdict, "suggest");
 });
 
 // ---------- integration: 6 fixtures solve(mock) -> compare ----------

@@ -18,9 +18,9 @@ export function initDb() {
     );
     CREATE TABLE IF NOT EXISTS checks(
       id TEXT PRIMARY KEY, user_id TEXT, title TEXT, subject TEXT, grade TEXT,
-      level_expect TEXT, group_kind TEXT, status TEXT DEFAULT 'created', created_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS questions(
+      level_expect TEXT, group_kind TEXT, has_answer INTEGER DEFAULT 1,
+      status TEXT DEFAULT 'created', created_at TEXT
+    );    CREATE TABLE IF NOT EXISTS questions(
       id TEXT PRIMARY KEY, check_id TEXT, ord INTEGER, content TEXT,
       opt_a TEXT, opt_b TEXT, opt_c TEXT, opt_d TEXT, expected_answer TEXT, explanation TEXT
     );
@@ -43,6 +43,11 @@ export function initDb() {
   `);
   if (!db.prepare("SELECT 1 FROM users WHERE id=?").get("demo-teacher")) {
     db.prepare("INSERT INTO users(id, display_name) VALUES(?,?)").run("demo-teacher", "GV Demo");
+  }
+  // Migration: đề có kèm đáp án hay không (1 = có, 0 = không). DB cũ thiếu cột -> thêm.
+  const cols = db.prepare("PRAGMA table_info(checks)").all().map((c) => c.name);
+  if (!cols.includes("has_answer")) {
+    db.exec("ALTER TABLE checks ADD COLUMN has_answer INTEGER DEFAULT 1");
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_q_check ON questions(check_id);
     CREATE INDEX IF NOT EXISTS idx_f_q ON findings(question_id);

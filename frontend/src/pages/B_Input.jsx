@@ -77,6 +77,7 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
   const [grade, setGrade] = useState("Lớp 10");
   const [bookSeries, setBookSeries] = useState("Kết nối tri thức");
   const [checkLevel, setCheckLevel] = useState("standard"); // "standard" | "deep"
+  const [answerMode, setAnswerMode] = useState("auto"); // "auto" | "yes" | "no"
   const [examText, setExamText] = useState("");
   const [fileText, setFileText] = useState("");
   const [uploadedFileName, setUploadedFileName] = useState("");
@@ -177,6 +178,7 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
           grade: grade.replace("Lớp ", ""),
           exam_text: textToAnalyze,
           check_level: checkLevel,
+          has_answer: answerMode === "auto" ? "auto" : answerMode === "yes",
         }),
       });
       await delay(700);
@@ -905,6 +907,25 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
             <option>Chân trời sáng tạo</option>
             <option>Khác / Đề chung</option>
           </select>
+        </div>
+      </div>
+
+      {/* Đáp án kèm theo */}
+      <div className="custom-radio-group">
+        <div className="custom-radio-label">Đề có kèm đáp án không?</div>
+        <div className="custom-radio-row">
+          {[
+            ["auto", "Tự đoán — hệ thống tự nhận biết"],
+            ["yes", "Có — đối chiếu đáp án GV"],
+            ["no", "Không — chỉ soi cấu trúc + gợi ý đáp án"],
+          ].map(([v, label]) => (
+            <div key={v} className="custom-radio-item" onClick={() => setAnswerMode(v)}>
+              <div className={`custom-radio-circle ${answerMode === v ? "checked" : ""}`}>
+                {answerMode === v && <div className="custom-radio-dot" />}
+              </div>
+              <span>{label}</span>
+            </div>
+          ))}
         </div>
       </div>
 

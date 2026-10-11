@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test tests/smoke.test.js tests/features.test.js tests/extract.test.js tests/validator.test.js tests/aiReview.test.js tests/aiSolve.test.js tests/knowledge.test.js",
+    "test": "node --test tests/smoke.test.js tests/features.test.js tests/extract.test.js tests/validator.test.js tests/aiReview.test.js tests/aiSolve.test.js tests/knowledge.test.js tests/no-answer.test.js",
     "eval:ai": "node tests/ai-eval.js",
     "eval:solve": "node tests/ai-solve-eval.js"
   },

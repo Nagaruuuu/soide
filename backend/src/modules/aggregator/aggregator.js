@@ -30,6 +30,15 @@ export function aggregate(q, check = {}, ruleFindings = [], extra = {}) {
         verification_method: "computed", confidence: "cao",
         expected_answer: q.expected_answer, suggested_answer: m,
       });
+    } else if (m && !q.expected_answer) {
+      // Đề không kèm đáp án: gợi ý đáp án từ solver (hint, GV chốt)
+      out.push({
+        severity: "hint", category: "goi_y_dap_an",
+        evidence: `Máy tính ra ${extra.solver.steps} → gợi ý đáp án ${m}.`,
+        fix_suggestion: `Cân nhắc chọn ${m} làm đáp án — kiểm tra lại trước khi chốt.`,
+        verification_method: "computed", confidence: "vừa",
+        expected_answer: "", suggested_answer: m,
+      });
     } else if (!m && q.expected_answer) {
       out.push({
         severity: "review", category: "solver_khong_khop",

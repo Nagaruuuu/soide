@@ -80,14 +80,19 @@ r.post("/checks/:id/ai-solve", async (req, res, next) => {
       comparisons.push({ ...cmp, codeChecked: !!s.codeChecked });
       if (cmp.verdict === "match") continue; // khớp thì không lưu, tránh nhiễu
       const isMismatch = cmp.verdict === "mismatch";
+      const isSuggest = cmp.verdict === "suggest";
       const fid = randomUUID();
       const evidence = isMismatch
         ? `Giải độc lập chọn ${cmp.independentAnswer}, đáp án dự kiến ${cmp.expectedAnswer}. Lập luận: ${s.reasoningSummary}`
-        : `Chưa đối chiếu được (${s.status}). ${s.reasoningSummary}`;
+        : isSuggest
+          ? `AI giải độc lập đề xuất đáp án ${cmp.independentAnswer}. Lập luận: ${s.reasoningSummary}`
+          : `Chưa đối chiếu được (${s.status}). ${s.reasoningSummary}`;
       finsIns.run(fid, q.id, isMismatch ? "review" : "hint",
-        isMismatch ? "ai_solution_mismatch" : "ai_solution_needs_review",
-        evidence.slice(0, 900), q.expected_answer ?? "", isMismatch ? (cmp.independentAnswer ?? "") : "",
-        isMismatch ? "GV kiểm tra lại đáp án dự kiến — mismatch chưa kết luận bên nào đúng." : "GV xem xét bổ sung dữ kiện/làm rõ câu hỏi.",
+        isMismatch ? "ai_solution_mismatch" : isSuggest ? "ai_solution_suggest" : "ai_solution_needs_review",
+        evidence.slice(0, 900), q.expected_answer ?? "", (isMismatch || isSuggest) ? (cmp.independentAnswer ?? "") : "",
+        isMismatch ? "GV kiểm tra lại đáp án dự kiến — mismatch chưa kết luận bên nào đúng."
+          : isSuggest ? "Đề xuất từ giải mù — GV kiểm tra rồi chốt đáp án."
+          : "GV xem xét bổ sung dữ kiện/làm rõ câu hỏi.",
         "thấp", "llm-suggest", "pending");
       saved.push({ id: fid, question_id: q.id, questionNumber: q.ord, severity: isMismatch ? "review" : "hint", ...cmp });
     }

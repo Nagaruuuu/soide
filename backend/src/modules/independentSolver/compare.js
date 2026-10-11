@@ -17,6 +17,10 @@ export function compareSolution(solution = {}, expectedAnswer = "") {
   }
   const expRaw = String(expectedAnswer ?? "").trim();
   if (!expRaw) {
+    // Đề không kèm đáp án: kết quả giải mù thành ĐỀ XUẤT đáp án (GV chốt)
+    if (solution.status === "solved" && solution.answer !== null) {
+      return { ...base, verdict: "suggest", independentAnswer: solution.answer, expectedAnswer: "", reason: `AI giải độc lập đề xuất đáp án ${solution.answer} — GV kiểm tra rồi chốt.` };
+    }
     return { ...base, verdict: "needs_review", reason: "Đề không có đáp án dự kiến để đối chiếu." };
   }
   const gv = normLetter(expRaw);

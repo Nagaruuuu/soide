@@ -33,7 +33,7 @@ export function listChecks(req, res, next) {
 
 export function createCheck(req, res, next) {
   try {
-    const { title = "Bài kiểm tra", subject = "Toán", grade = "", level_expect = "", check_level = "", group_kind = "", exam_text = "", questions = [] } = req.body ?? {};
+    const { title = "Bài kiểm tra", subject = "Toán", grade = "", level_expect = "", check_level = "", group_kind = "", exam_text = "", questions = [], has_answer = "auto" } = req.body ?? {};
     const rawLen = typeof exam_text === "string" && exam_text ? exam_text.length : JSON.stringify(questions ?? "").length;
     if (rawLen > 20_000) throw err("INPUT_TOO_LONG", "Nội dung quá dài (tối đa ~20.000 ký tự). Hãy chia nhỏ.", 413);
 
@@ -46,12 +46,18 @@ export function createCheck(req, res, next) {
     const group = group_kind || guessGroup(subject);
     // check_level từ FE (standard|deep): lưu vào level_expect để run dùng
     const level = check_level || level_expect || "standard";
-    db.prepare("INSERT INTO checks(id,user_id,title,subject,grade,level_expect,group_kind,status,created_at) VALUES(?,?,?,?,?,?,?,?,?)")
-      .run(id, CURRENT_USER, title, subject, grade, level, group, "created", new Date().toISOString());
+    // has_answer: true | false | "auto" (mặc định). auto: <30% câu có đáp án -> coi như không có.
+    const answeredCount = parsed.filter((q) => String(q.expected_answer ?? "").trim() !== "").length;
+    const detectedHasAnswer = answeredCount / parsed.length >= 0.3;
+    const hasAnswer = has_answer === "auto" || has_answer == null
+      ? detectedHasAnswer
+      : has_answer === true || has_answer === 1 || has_answer === "true";
+    db.prepare("INSERT INTO checks(id,user_id,title,subject,grade,level_expect,group_kind,has_answer,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
+      .run(id, CURRENT_USER, title, subject, grade, level, group, hasAnswer ? 1 : 0, "created", new Date().toISOString());
     const qins = db.prepare("INSERT INTO questions(id,check_id,ord,content,opt_a,opt_b,opt_c,opt_d,expected_answer,explanation) VALUES(?,?,?,?,?,?,?,?,?,?)");
     parsed.forEach((q, i) => qins.run(randomUUID(), id, i + 1, q.content ?? "", q.opt_a ?? "", q.opt_b ?? "", q.opt_c ?? "", q.opt_d ?? "", q.expected_answer ?? "", q.explanation ?? ""));
     db.prepare("UPDATE users SET used_this_month = used_this_month + ? WHERE id=?").run(parsed.length, CURRENT_USER);
-    res.json({ check_id: id, question_count: parsed.length, group_kind: group, level_expect: level });
+    res.json({ check_id: id, question_count: parsed.length, group_kind: group, level_expect: level, has_answer: hasAnswer, answer_detected: detectedHasAnswer });
   } catch (e) { next(e); }
 }
 
@@ -96,8 +102,10 @@ export async function runCheck(req, res, next) {
       }
       // Phản biện có điều kiện: solver lệch đáp án GV HOẶC rules confidence thấp / thiếu đáp án
       // deep: luôn phản biện (tối đa 10 câu) để kiểm tra sâu
+      // đề không đáp án: không kích argue chỉ vì thiếu đáp án (tránh tốn token vô ích)
+      const hasAns = Number(check.has_answer ?? 1) !== 0;
       const needArgue = solver?.matchLetter && q.expected_answer && solver.matchLetter !== q.expected_answer;
-      const lowConf = ruleFindings.some((f) => f.confidence === "thấp" || f.category === "thieu_dap_an");
+      const lowConf = ruleFindings.some((f) => f.confidence === "thấp" || (hasAns && f.category === "thieu_dap_an"));
       const wantDeep = deep && deepArgueLeft > 0;
       if (llmConfig().hasKey && (needArgue || lowConf || wantDeep)) {
         if (wantDeep && !needArgue && !lowConf) deepArgueLeft--;
@@ -204,11 +212,6 @@ export function computeMatrixGDPT2018(questions = []) {
         van_dung: { count: 0, percent: 0, label: "Vận dụng", target: "20%" },
         van_dung_cao: { count: 0, percent: 0, label: "Vận dụng cao", target: "10%" },
       },
-      format_structure: {
-        part1: { count: 0, percent: 0, label: "Phần I: Nhiều lựa chọn (4 PA)" },
-        part2: { count: 0, percent: 0, label: "Phần II: Đúng / Sai (4 ý)" },
-        part3: { count: 0, percent: 0, label: "Phần III: Trả lời ngắn" },
-      },
       pedagogical_score: null,
       pedagogical_assessment: "Chưa có câu hỏi nào để đánh giá ma trận.",
       recommendation: "Khung ma trận tham chiếu chuẩn: 40% Biết · 30% Hiểu · 20% Vận dụng · 10% Vận dụng cao.",
@@ -216,7 +219,6 @@ export function computeMatrixGDPT2018(questions = []) {
   }
 
   const counts = { biet: 0, hieu: 0, van_dung: 0, van_dung_cao: 0 };
-  const formats = { part1: 0, part2: 0, part3: 0 };
 
   const categorizedQuestions = questions.map((q) => {
     const text = (q.content || "").toLowerCase();
@@ -235,19 +237,7 @@ export function computeMatrixGDPT2018(questions = []) {
       counts.biet++;
     }
 
-    let fmt = "part1";
-    if (q.q_type === "true_false" || /đúng.*sai/i.test(text)) {
-      fmt = "part2";
-      formats.part2++;
-    } else if (q.q_type === "short_answer" || (!q.opt_c && !q.opt_d)) {
-      fmt = "part3";
-      formats.part3++;
-    } else {
-      fmt = "part1";
-      formats.part1++;
-    }
-
-    return { ...q, cognitive_level: level, format_type: fmt };
+    return { ...q, cognitive_level: level };
   });
 
   // Phần trăm làm tròn theo largest-remainder để tổng luôn = 100
@@ -279,11 +269,6 @@ export function computeMatrixGDPT2018(questions = []) {
       hieu: { count: counts.hieu, percent: pHieu, label: "Thông hiểu", target: "30%" },
       van_dung: { count: counts.van_dung, percent: pVD, label: "Vận dụng", target: "20%" },
       van_dung_cao: { count: counts.van_dung_cao, percent: pVDC, label: "Vận dụng cao", target: "10%" },
-    },
-    format_structure: {
-      part1: { count: formats.part1, percent: Math.round((formats.part1 / total) * 100), label: "Phần I: Nhiều lựa chọn" },
-      part2: { count: formats.part2, percent: Math.round((formats.part2 / total) * 100), label: "Phần II: Đúng / Sai" },
-      part3: { count: formats.part3, percent: Math.round((formats.part3 / total) * 100), label: "Phần III: Trả lời ngắn" },
     },
     pedagogical_score: Number(pedagogical_score.toFixed(1)),
     pedagogical_assessment: assessment,

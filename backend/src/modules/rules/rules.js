@@ -31,8 +31,14 @@ export function runRules(q, check = {}, siblings = []) {
 
   if (!q.opt_a || !q.opt_b || !q.opt_c || !q.opt_d)
     push("blocker", "thieu_thanh_phan", "Thiếu một hoặc nhiều phương án A/B/C/D.", "Bổ sung đủ 4 phương án trước khi kiểm tiếp.");
-  if (!q.expected_answer)
-    push("review", "thieu_dap_an", "Chưa nhập đáp án dự kiến nên không đối chiếu được.", "Nhập đáp án A/B/C/D dự kiến.", "rule", "vừa");
+  // Đề không kèm đáp án (check.has_answer === 0): không báo thiếu, chỉ ghi nhận info
+  const wantAnswer = check.has_answer == null || Number(check.has_answer) !== 0;
+  if (!q.expected_answer) {
+    if (wantAnswer)
+      push("review", "thieu_dap_an", "Chưa nhập đáp án dự kiến nên không đối chiếu được.", "Nhập đáp án A/B/C/D dự kiến.", "rule", "vừa");
+    else
+      push("info", "khong_kem_dap_an", "Đề không kèm đáp án — chỉ soi cấu trúc, AI sẽ gợi ý đáp án.", "Bật gợi ý đáp án ở bước chạy để nhận đề xuất.", "rule", "vừa");
+  }
   const content = q.content || "";
   if (!/\?\s*$/.test(content) && !/(chọn|điền|tính|tìm|nào sau đây|đúng|sai)/i.test(content))
     push("hint", "cau_chu", "Câu hỏi chưa có dấu hỏi hoặc động từ yêu cầu rõ ràng.", "Thêm yêu cầu: '... là gì? / Chọn đáp án đúng.'", "rule", "vừa");

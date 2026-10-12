@@ -63,7 +63,18 @@ export function validateExam(input = {}) {
     }
   }
   questions = attachNums(questions, text);
-  const withNum = questions.filter((q) => q._num != null);
+  // Bảng đáp án riêng (cuối đề hoặc truyền vào): điền vào câu thiếu đáp án
+  // TRƯỚC khi chạy các rule đáp án — đáp án riêng cũng là đáp án hợp lệ.
+  let mergedKey = answerKey;
+  if (!mergedKey && text) mergedKey = parseAnswerTable(text);
+  let withNum = questions.filter((q) => q._num != null);
+  if (mergedKey && Object.keys(mergedKey).length) {
+    withNum = withNum.map((q) => (
+      String(q.expected_answer ?? "").trim() === "" && mergedKey[q._num] != null
+        ? { ...q, expected_answer: mergedKey[q._num], _answerFromKey: true }
+        : q
+    ));
+  }
   const enabled = new Set(registryFor(type));
 
   if (enabled.has("duplicate")) {

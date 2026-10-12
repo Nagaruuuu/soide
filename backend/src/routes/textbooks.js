@@ -3,18 +3,18 @@
 // GET /api/textbooks, DELETE /api/textbooks/:id, POST /api/references
 import { Router } from "express";
 import { db } from "../db/db.js";
-import { uploadSingle } from "../middleware/upload.js";
+import { uploadBook, TEXTBOOK_ROUTE_MAX_MB } from "../middleware/upload.js";
 import { ingestTextbook } from "../modules/knowledge/ingest.js";
 import { retrieve } from "../modules/knowledge/retrieve.js";
 
 const r = Router();
 
 r.post("/textbooks", (req, res, next) => {
-  uploadSingle(req, res, async (multerErr) => {
+  uploadBook(req, res, async (multerErr) => {
     try {
       if (multerErr) {
         if (multerErr.code === "LIMIT_FILE_SIZE") {
-          return res.status(413).json({ error_code: "FILE_TOO_LARGE", message_vi: "File vượt giới hạn dung lượng.", retryable: false });
+          return res.status(413).json({ error_code: "FILE_TOO_LARGE", message_vi: `File vượt giới hạn ${TEXTBOOK_ROUTE_MAX_MB}MB. Hãy nạp từng chương riêng.`, retryable: false });
         }
         return next(multerErr);
       }
@@ -38,6 +38,8 @@ r.post("/textbooks", (req, res, next) => {
           bookSeries: req.body?.bookSeries, title: req.body?.title,
         },
       });
+      // P0-2: giải phóng buffer upload ngay sau ingest
+      req.file.buffer = null;
       res.status(201).json(out);
     } catch (e) { next(e); }
   });

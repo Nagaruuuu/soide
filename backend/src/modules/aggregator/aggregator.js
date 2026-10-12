@@ -1,7 +1,13 @@
 // Gộp findings rules + solver sandbox + LLM, xếp severity, gắn nhãn trung thực.
-const ORDER = { blocker: 0, review: 1, hint: 2, ok: 3 };
+const ORDER = { blocker: 0, error: 0, review: 1, warning: 1, hint: 2, info: 2, ok: 3 };
 
 export function aggregate(q, check = {}, ruleFindings = [], extra = {}) {
+  // Nếu nội dung chưa đủ để đánh giá: CHỈ trả duy nhất 1 warning này, không chạy thêm solver/LLM hay kết luận sai
+  const insufficientFinding = ruleFindings.find((f) => f.category === "noi_dung_chua_du");
+  if (insufficientFinding) {
+    return [insufficientFinding];
+  }
+
   const out = [...ruleFindings];
   const group = check.group_kind || "H";
 
@@ -71,11 +77,17 @@ export function aggregate(q, check = {}, ruleFindings = [], extra = {}) {
     return f;
   });
 
-  // dedup theo category + sort blocker>review>hint>ok
-  const seen = new Set();
-  return fixed.filter((f) => {
-    const k = f.category + "|" + f.evidence;
-    if (seen.has(k)) return false;
-    seen.add(k); return true;
-  }).sort((a, b) => (ORDER[a.severity] ?? 9) - (ORDER[b.severity] ?? 9));
+  // Gộp các cảnh báo trùng nguyên nhân (dedup theo category, mỗi category chỉ giữ 1 finding có severity cao nhất)
+  const byCategory = new Map();
+  for (const f of fixed) {
+    const existing = byCategory.get(f.category);
+    if (!existing) {
+      byCategory.set(f.category, f);
+    } else {
+      if ((ORDER[f.severity] ?? 9) < (ORDER[existing.severity] ?? 9)) {
+        byCategory.set(f.category, f);
+      }
+    }
+  }
+  return [...byCategory.values()].sort((a, b) => (ORDER[a.severity] ?? 9) - (ORDER[b.severity] ?? 9));
 }

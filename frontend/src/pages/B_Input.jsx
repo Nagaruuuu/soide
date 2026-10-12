@@ -78,6 +78,7 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
   const [bookSeries, setBookSeries] = useState("Kết nối tri thức");
   const [checkLevel, setCheckLevel] = useState("standard"); // "standard" | "deep"
   const [answerMode, setAnswerMode] = useState("auto"); // "auto" | "yes" | "no"
+  const [questionFormat, setQuestionFormat] = useState("auto"); // "auto" | "choice" | "essay"
   const [examText, setExamText] = useState("");
   const [fileText, setFileText] = useState("");
   const [uploadedFileName, setUploadedFileName] = useState("");
@@ -179,6 +180,7 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
           exam_text: textToAnalyze,
           check_level: checkLevel,
           has_answer: answerMode === "auto" ? "auto" : answerMode === "yes",
+          question_format: questionFormat,
         }),
       });
       await delay(700);
@@ -229,6 +231,7 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
     const CATEGORY_LABELS = {
       ok: "Đánh giá sơ bộ",
       on: "Đánh giá sơ bộ",
+      noi_dung_chua_du: "Nội dung chưa đủ",
       dap_an_sai: "Sai lệch đáp án",
       solver_khong_khop: "Không khớp lời giải mù",
       thieu_thanh_phan: "Thiếu thành phần câu",
@@ -238,17 +241,18 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
       ai_ambiguous: "Câu hỏi đa nghĩa",
     };
 
+    const qs = resultsData.question_stats || null;
     const counts = {
-      blocker: (resultsData.questions || []).filter((q) =>
-        (q.findings || []).some((f) => f.severity === "blocker")
+      blocker: qs ? qs.errors : (resultsData.questions || []).filter((q) =>
+        (q.findings || []).some((f) => f.severity === "blocker" || f.severity === "error")
       ).length,
-      review: (resultsData.questions || []).filter((q) =>
-        (q.findings || []).some((f) => f.severity === "review")
+      review: qs ? qs.warnings : (resultsData.questions || []).filter((q) =>
+        (q.findings || []).some((f) => f.severity === "review" || f.severity === "warning")
       ).length,
-      hint: (resultsData.questions || []).filter((q) =>
-        (q.findings || []).some((f) => f.severity === "hint")
+      hint: qs ? qs.infos : (resultsData.questions || []).filter((q) =>
+        (q.findings || []).some((f) => f.severity === "hint" || f.severity === "info")
       ).length,
-      ok: (resultsData.questions || []).filter(
+      ok: qs ? qs.ok : (resultsData.questions || []).filter(
         (q) => !q.findings || q.findings.length === 0 || q.findings.every((f) => f.severity === "ok")
       ).length,
     };
@@ -256,13 +260,13 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
     const filteredQuestions = (resultsData.questions || []).filter((q) => {
       if (severityFilter === "all") return true;
       if (severityFilter === "blocker") {
-        return (q.findings || []).some((f) => f.severity === "blocker");
+        return (q.findings || []).some((f) => f.severity === "blocker" || f.severity === "error");
       }
       if (severityFilter === "review") {
-        return (q.findings || []).some((f) => f.severity === "review");
+        return (q.findings || []).some((f) => f.severity === "review" || f.severity === "warning");
       }
       if (severityFilter === "hint") {
-        return (q.findings || []).some((f) => f.severity === "hint");
+        return (q.findings || []).some((f) => f.severity === "hint" || f.severity === "info");
       }
       if (severityFilter === "ok") {
         return !q.findings || q.findings.length === 0 || q.findings.every((f) => f.severity === "ok");
@@ -471,44 +475,75 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
                   </span>
                 </div>
 
-                {/* Choices */}
-                <div className="choices-grid">
-                  {[
-                    ["A", q.opt_a],
-                    ["B", q.opt_b],
-                    ["C", q.opt_c],
-                    ["D", q.opt_d],
-                  ].map(([letter, text]) => {
-                    const isExpected = (q.expected_answer || "").toUpperCase() === letter;
-                    return (
-                      <div key={letter} className={`choice-box ${isExpected ? "is-expected" : ""}`}>
-                        <span
-                          style={{
-                            width: 20,
-                            height: 20,
-                            borderRadius: "50%",
-                            background: isExpected ? "#52c41a" : "#e5e7eb",
-                            color: isExpected ? "white" : "#374151",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: 11,
-                            fontWeight: 700,
-                            flexShrink: 0,
-                          }}
-                        >
-                          {letter}
-                        </span>
-                        <span style={{ flex: 1 }}>{text || <em>(trống)</em>}</span>
-                        {isExpected && (
-                          <span style={{ fontSize: 10.5, fontWeight: 700, color: "#22c55e", flexShrink: 0 }}>
-                            Đáp án GV
+                {/* Choices (Chỉ hiển thị khi có ít nhất 1 phương án có nội dung) */}
+                {[q.opt_a, q.opt_b, q.opt_c, q.opt_d].some((o) => Boolean(o && String(o).trim())) && (
+                  <div className="choices-grid">
+                    {[
+                      ["A", q.opt_a],
+                      ["B", q.opt_b],
+                      ["C", q.opt_c],
+                      ["D", q.opt_d],
+                    ].map(([letter, text]) => {
+                      const isExpected = (q.expected_answer || "").toUpperCase() === letter;
+                      return (
+                        <div key={letter} className={`choice-box ${isExpected ? "is-expected" : ""}`}>
+                          <span
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: "50%",
+                              background: isExpected ? "#52c41a" : "#e5e7eb",
+                              color: isExpected ? "white" : "#374151",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {letter}
                           </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                          <span style={{ flex: 1 }}>{text || <em>(trống)</em>}</span>
+                          {isExpected && (
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: "#22c55e", flexShrink: 0 }}>
+                              Đáp án GV
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Hướng dẫn giáo viên khi nội dung chưa đủ để đánh giá */}
+                {q.findings?.some((f) => f.category === "noi_dung_chua_du") && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      marginBottom: 8,
+                      padding: "12px 14px",
+                      background: "#fffbeb",
+                      border: "1px solid #fde68a",
+                      borderRadius: 8,
+                      fontSize: 13,
+                      color: "#92400e",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>💡 Hướng dẫn bổ sung nội dung</span>
+                    </div>
+                    <div>
+                      Câu hỏi hiện chưa đủ thông tin để SOI ĐỀ AI tiến hành thẩm định. Thầy/cô vui lòng:
+                      <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                        <li>Bổ sung đầy đủ câu dẫn và yêu cầu câu hỏi.</li>
+                        <li>Thêm các phương án lựa chọn A/B/C/D (nếu là câu hỏi trắc nghiệm).</li>
+                        <li>Nhập đáp án dự kiến (nếu có) để đối chiếu kết quả.</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
 
                 {/* Findings or Clean Evaluation */}
                 {(!q.findings || q.findings.length === 0) ? (
@@ -537,6 +572,9 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
                 ) : (
                   q.findings.map((f) => {
                     const isOk = f.severity === "ok" || f.category === "ok" || f.category === "on" || f.evidence === "on" || !f.evidence;
+                    const isBlocker = f.severity === "blocker" || f.severity === "error";
+                    const isReview = f.severity === "review" || f.severity === "warning";
+                    const isHint = f.severity === "hint" || f.severity === "info";
                     return (
                       <div key={f.id} className={`finding-box sev-${f.severity}`}>
                         <div
@@ -557,21 +595,21 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
                                 padding: "2px 8px",
                                 borderRadius: 4,
                                 background:
-                                  f.severity === "blocker"
+                                  isBlocker
                                     ? "#ff4d4f"
-                                    : f.severity === "review"
+                                    : isReview
                                     ? "#fa8c16"
-                                    : f.severity === "hint"
+                                    : isHint
                                     ? "#1677ff"
                                     : "#10b981",
                                 color: "white",
                               }}
                             >
-                              {f.severity === "blocker"
+                              {isBlocker
                                 ? "Lỗi chặn lại"
-                                : f.severity === "review"
+                                : isReview
                                 ? "Cần xem lại"
-                                : f.severity === "hint"
+                                : isHint
                                 ? "Gợi ý"
                                 : "Đạt chuẩn"}
                             </span>
@@ -907,6 +945,25 @@ export default function CheckExamPage({ onDone, onGoToReport, currentCheckId }) 
             <option>Chân trời sáng tạo</option>
             <option>Khác / Đề chung</option>
           </select>
+        </div>
+      </div>
+
+      {/* Định dạng đề */}
+      <div className="custom-radio-group">
+        <div className="custom-radio-label">Dạng câu hỏi trong đề?</div>
+        <div className="custom-radio-row">
+          {[
+            ["auto", "Tự đoán — có A-D thì là trắc nghiệm"],
+            ["choice", "Trắc nghiệm — kiểm đủ 4 phương án"],
+            ["essay", "Tự luận — không đòi phương án"],
+          ].map(([v, label]) => (
+            <div key={v} className="custom-radio-item" onClick={() => setQuestionFormat(v)}>
+              <div className={`custom-radio-circle ${questionFormat === v ? "checked" : ""}`}>
+                {questionFormat === v && <div className="custom-radio-dot" />}
+              </div>
+              <span>{label}</span>
+            </div>
+          ))}
         </div>
       </div>
 

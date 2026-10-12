@@ -95,8 +95,8 @@ export function parseOne(block) {  let text = String(block || "").trim();
     if (mm && !q.opt_d) { q.opt_d = stripTrailingAnswer(mm[1], q); continue; }
     mm = ln.match(/(đáp án|dap an|answer)\s*[:\-]\s*([A-Da-d])/i);
     if (mm) { q.expected_answer = mm[2].toUpperCase(); continue; }
-    if (!q.content) q.content = ln.replace(/^(Câu\s*\d+|Bài\s*\d+|\d+\s*[.)\:\s]*)/i, "").trim();
-    else q.content += " " + ln.replace(/^(Câu\s*\d+|Bài\s*\d+|\d+\s*[.)\:\s]*)/i, "").trim();
+    if (!q.content) q.content = ln.replace(/^(Câu\s*\d+|Bài\s*\d+|\d+)\s*[:.)\-\s]*/i, "").trim();
+    else q.content += " " + ln.replace(/^(Câu\s*\d+|Bài\s*\d+|\d+)\s*[:.)\-\s]*/i, "").trim();
   }
   return cleanup(q);
 }

@@ -96,8 +96,8 @@ const exportMenuItemStyle = {
   textAlign: "left",
 };
 
-// Severity ranking: blocker > review > hint > info
-const SEVERITY_RANK = { blocker: 3, review: 2, hint: 1, info: 0 };
+// Severity ranking: blocker/error > review/warning > hint > info
+const SEVERITY_RANK = { blocker: 3, error: 3, review: 2, warning: 2, hint: 1, info: 0, ok: -1 };
 const getSeverityRank = (sev) => SEVERITY_RANK[sev] ?? 0;
 
 export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) {
@@ -402,17 +402,21 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
   const summary = activeData.summary || {};
   const findings = activeData.findings || [];
 
-  // Compute stat counts — theo MỨC ĐỘ (severity) để khớp màu thẻ cảnh báo,
-  // không theo trạng thái duyệt (confirmed/pending) như trước
-  const okCount = summary.ok_questions !== undefined ? summary.ok_questions : 0;
-  const reviewCount = summary.severity_counts?.review
-    ?? (summary.review_count !== undefined
-      ? summary.review_count
-      : (summary.pending !== undefined ? summary.pending : 0));
-  const blockerCount = summary.severity_counts?.blocker
-    ?? (summary.blocker_count !== undefined
-      ? summary.blocker_count
-      : (summary.confirmed !== undefined ? summary.confirmed : 0));
+  // Compute stat counts — ưu tiên lấy từ question_stats (đồng bộ cùng nguồn)
+  const qs = summary.question_stats || null;
+  const okCount = qs ? qs.ok : (summary.ok_questions !== undefined ? summary.ok_questions : 0);
+  const reviewCount = qs
+    ? qs.warnings
+    : (summary.severity_counts?.review
+      ?? (summary.review_count !== undefined
+        ? summary.review_count
+        : (summary.pending !== undefined ? summary.pending : 0)));
+  const blockerCount = qs
+    ? qs.errors
+    : (summary.severity_counts?.blocker
+      ?? (summary.blocker_count !== undefined
+        ? summary.blocker_count
+        : (summary.confirmed !== undefined ? summary.confirmed : 0)));
 
   const hasWarnings = (reviewCount + blockerCount) > 0;
 
@@ -667,16 +671,16 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
         {/* Findings List (Gom theo từng câu) */}
         <div style={{ display: "flex", flexDirection: "column" }}>
           {groupedFindings.map((g, groupIdx) => {
-            const isBlocker = g.highestSeverity === "blocker";
-            const isReview = g.highestSeverity === "review";
+            const isBlocker = g.highestSeverity === "blocker" || g.highestSeverity === "error";
+            const isReview = g.highestSeverity === "review" || g.highestSeverity === "warning";
             const pillBg = isBlocker ? "#fee2e2" : isReview ? "#ffedd5" : "#eff6ff";
             const pillColor = isBlocker ? "#dc2626" : isReview ? "#ea580c" : "#2563eb";
             const groupHeaderTitle =
               g.mainTitle ||
               (isBlocker
-                ? "Đáp án có thể sai"
+                ? "Lỗi cần xử lý"
                 : isReview
-                ? "Câu hỏi có thể mơ hồ"
+                ? "Nghi vấn cần kiểm tra"
                 : "Gợi ý kiểm chứng");
 
             return (
@@ -764,6 +768,29 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
                     </span>
                   </div>
 
+                  {/* Hướng dẫn giáo viên khi nội dung chưa đủ để đánh giá */}
+                  {g.items.some((item) => item.category === "noi_dung_chua_du") && (
+                    <div
+                      style={{
+                        margin: "8px 0 10px 0",
+                        padding: "10px 14px",
+                        background: "#fffbeb",
+                        border: "1px solid #fde68a",
+                        borderRadius: 8,
+                        fontSize: "13px",
+                        color: "#92400e",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      <strong style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span>💡 Hướng dẫn bổ sung nội dung:</span>
+                      </strong>
+                      <div>
+                        Nội dung câu hỏi hiện chưa đủ để SOI ĐỀ AI tiến hành thẩm định. Thầy/cô vui lòng bổ sung đầy đủ nội dung câu hỏi, các phương án lựa chọn A/B/C/D (nếu là trắc nghiệm) và đáp án dự kiến (nếu có).
+                      </div>
+                    </div>
+                  )}
+
                   {/* 1 dòng đáp án dự kiến & Giải độc lập (nếu có) */}
                   {(g.expectedAnswer || g.suggestedAnswer) && (
                     <div
@@ -782,17 +809,17 @@ export default function ReportPage({ checkId, onToast, onSelectCheck, onBack }) 
                   {/* Danh sách gạch đầu dòng — mỗi issue 1 dòng */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
                     {g.items.map((item, itemIdx) => {
-                      const itemIsBlocker = item.severity === "blocker";
-                      const itemIsReview = item.severity === "review";
+                      const itemIsBlocker = item.severity === "blocker" || item.severity === "error";
+                      const itemIsReview = item.severity === "review" || item.severity === "warning";
                       const itemPillBg = itemIsBlocker ? "#fee2e2" : itemIsReview ? "#ffedd5" : "#eff6ff";
                       const itemPillColor = itemIsBlocker ? "#dc2626" : itemIsReview ? "#ea580c" : "#2563eb";
                       const itemPillLabel = itemIsBlocker ? "Lỗi" : itemIsReview ? "Xem lại" : "Gợi ý";
                       const itemTitle =
                         item.title ||
                         (itemIsBlocker
-                          ? "Đáp án có thể sai"
+                          ? "Lỗi cần xử lý"
                           : itemIsReview
-                          ? "Câu hỏi có thể mơ hồ"
+                          ? "Nghi vấn cần kiểm tra"
                           : "Gợi ý kiểm chứng");
 
                       return (

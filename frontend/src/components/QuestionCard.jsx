@@ -20,28 +20,48 @@ export default function QuestionCard({ q, filter = "all", onReview, onRetry }) {
         </div>
       </div>
 
-      <div className="choices-grid">
-        {[
-          ["A", q.opt_a],
-          ["B", q.opt_b],
-          ["C", q.opt_c],
-          ["D", q.opt_d],
-        ].map(([letter, text]) => {
-          const isExpected = (q.expected_answer || "").toUpperCase() === letter;
-          return (
-            <div key={letter} className={`choice-box ${isExpected ? "is-expected" : ""}`}>
-              <span className="choice-letter">{letter}</span>
-              <span className="choice-text">{text || <em>(trống)</em>}</span>
-              {isExpected && (
-                <span className="choice-expected-tag">
-                  <IconCheck size={12} />
-                  <span>Đáp án GV</span>
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {[q.opt_a, q.opt_b, q.opt_c, q.opt_d].some((o) => Boolean(o && String(o).trim())) && (
+        <div className="choices-grid">
+          {[
+            ["A", q.opt_a],
+            ["B", q.opt_b],
+            ["C", q.opt_c],
+            ["D", q.opt_d],
+          ].map(([letter, text]) => {
+            const isExpected = (q.expected_answer || "").toUpperCase() === letter;
+            return (
+              <div key={letter} className={`choice-box ${isExpected ? "is-expected" : ""}`}>
+                <span className="choice-letter">{letter}</span>
+                <span className="choice-text">{text || <em>(trống)</em>}</span>
+                {isExpected && (
+                  <span className="choice-expected-tag">
+                    <IconCheck size={12} />
+                    <span>Đáp án GV</span>
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {q.findings?.some((f) => f.category === "noi_dung_chua_du") && (
+        <div
+          style={{
+            marginTop: 8,
+            marginBottom: 8,
+            padding: "10px 12px",
+            background: "#fffbeb",
+            border: "1px solid #fde68a",
+            borderRadius: 8,
+            fontSize: 12.5,
+            color: "#92400e",
+            lineHeight: 1.5,
+          }}
+        >
+          <strong>💡 Hướng dẫn bổ sung:</strong> Câu hỏi chưa đủ thông tin để thẩm định. Thầy/cô vui lòng bổ sung đầy đủ nội dung câu hỏi, phương án lựa chọn A-D (nếu có) và đáp án dự kiến (nếu có).
+        </div>
+      )}
 
       {!q.findings?.length && (
         <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>

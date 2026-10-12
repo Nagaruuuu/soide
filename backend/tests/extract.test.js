@@ -210,10 +210,28 @@ test("facade: rỗng / sai loại / quá lớn báo đúng mã", async () => {
   await assert.rejects(extractFromBuffer(Buffer.alloc(0), { originalName: "e.txt" }), (e) => e.code === "EMPTY_FILE");
   await assert.rejects(extractFromBuffer(Buffer.from("MZ....", "utf8"), { originalName: "x.exe" }), (e) => e.code === "UNSUPPORTED_TYPE");
   await assert.rejects(extractFromBuffer(buildDocx(["s"]), { originalName: "s.pptx" }), (e) => e.code === "PPTX_NOT_SUPPORTED_YET");
-  process.env.FILE_MAX_MB = "0";
+  process.env.FILE_MAX_MB = "1";
   try {
-    await assert.rejects(extractFromBuffer(Buffer.from("abc", "utf8"), { originalName: "a.txt" }), (e) => e.code === "FILE_TOO_LARGE");
+    await assert.rejects(extractFromBuffer(Buffer.alloc(2 * 1024 * 1024, 65), { originalName: "a.txt" }), (e) => e.code === "FILE_TOO_LARGE");
   } finally { delete process.env.FILE_MAX_MB; }
+});
+
+test("limits: env bẩn (0/abc/âm) fallback an toàn, không mất giới hạn", async () => {
+  const { fileLimits } = await import("../src/modules/extract/limits.js");
+  const keep = { ...process.env };
+  try {
+    process.env.FILE_MAX_MB = "abc";
+    assert.equal(fileLimits().maxMb, 10);
+    process.env.FILE_MAX_MB = "0";
+    assert.equal(fileLimits().maxMb, 10);
+    process.env.FILE_MAX_MB = "-5";
+    assert.equal(fileLimits().maxMb, 10);
+    process.env.FILE_MAX_MB = "5";
+    assert.equal(fileLimits().maxMb, 5);
+  } finally {
+    if (keep.FILE_MAX_MB === undefined) delete process.env.FILE_MAX_MB;
+    else process.env.FILE_MAX_MB = keep.FILE_MAX_MB;
+  }
 });
 
 test("facade: text quá 20k ký tự bị cắt + warning", async () => {
@@ -222,4 +240,51 @@ test("facade: text quá 20k ký tự bị cắt + warning", async () => {
   assert.ok(out.text.length <= 20000);
   assert.ok(out.warnings.some((w) => /cắt/i.test(w)));
   assert.equal(out.metadata.truncated, true);
+});
+
+// ---------- T14: profile sách (giới hạn riêng, không cắt SGK còn ~20%) ----------
+test("T14: bookLimits mặc định rộng hơn fileLimits, env bẩn vẫn fallback an toàn", async () => {
+  const { bookLimits, fileLimits } = await import("../src/modules/extract/limits.js");
+  const keep = { ...process.env };
+  try {
+    delete process.env.BOOK_MAX_CHARS;
+    delete process.env.BOOK_MAX_MB;
+    const b = bookLimits();
+    assert.equal(b.maxChars, 300000, "sách phải cho 300k ký tự");
+    assert.equal(b.maxMb, 30, "sách phải cho 30MB");
+    assert.equal(b.maxPages, 400);
+    assert.ok(b.maxChars > fileLimits().maxMb * 1000);
+    // env bẩn -> fallback, không mất giới hạn
+    process.env.BOOK_MAX_CHARS = "abc";
+    process.env.BOOK_MAX_MB = "-1";
+    const d = bookLimits();
+    assert.equal(d.maxChars, 300000);
+    assert.equal(d.maxMb, 30);
+  } finally {
+    for (const k of ["BOOK_MAX_CHARS", "BOOK_MAX_MB"]) {
+      if (keep[k] === undefined) delete process.env[k]; else process.env[k] = keep[k];
+    }
+  }
+});
+
+test("T14: profile book GIỮ trên 20k ký tự (đề thi thì vẫn cắt ở 20k)", async () => {
+  const keep = { ...process.env };
+  const body = "Định luật II Newton: \n\n" + "F = m.a là định luật của Newton về chuyển động. ".repeat(1200);
+  assert.ok(body.length > 50000, `fixture cần >50k ký tự, được ${body.length}`);
+  try {
+    delete process.env.BOOK_MAX_CHARS;
+    // ĐỀ THI: cắt ở 20k
+    const exam = await extractFromBuffer(Buffer.from(body, "utf8"), { originalName: "de.txt" });
+    assert.ok(exam.text.length <= 20000, "đề thi phải cắt ở 20k");
+    assert.equal(exam.metadata.truncated, true);
+    // SÁCH: giữ tới 300k -> không cắt
+    const book = await extractFromBuffer(Buffer.from(body, "utf8"), { originalName: "sgk.txt", profile: "book" });
+    assert.equal(book.metadata.truncated, false, "sách 60k ký tự không được cắt");
+    assert.ok(book.text.length >= 50000, `sách phải giữ hết, được ${book.text.length}`);
+    // hash toàn văn phải GIỐNG NHAU (hash trước khi cắt) -> dedup đúng
+    assert.equal(book.metadata.fullHash, exam.metadata.fullHash);
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in keep)) delete process.env[k];
+    Object.assign(process.env, keep);
+  }
 });

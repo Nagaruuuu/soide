@@ -49,12 +49,79 @@ export function shannonEntropy(str = "") {
 
 export function dupSimilarity(a, b) { return cosineTokens(a, b); }
 
+export const CATEGORY_TITLES = {
+  noi_dung_chua_du: "Nội dung chưa đủ để đánh giá",
+  thieu_thanh_phan: "Thiếu phương án A/B/C/D",
+  thieu_dap_an: "Chưa nhập đáp án dự kiến",
+  khong_kem_dap_an: "Đề không kèm đáp án",
+  dau_hoi_sai_vi_tri: "Dấu hỏi sai vị trí cú pháp",
+  thieu_dau_hoi: "Thiếu dấu hỏi cuối câu nghi vấn",
+  cau_chu: "Chưa có dấu hỏi hoặc yêu cầu rõ ràng",
+  cau_qua_ngan: "Nghi vấn văn bản nháp chưa hoàn chỉnh",
+  tu_khoa_test: "Chứa từ khóa nháp / thử nghiệm",
+  entropy_thap: "Nội dung lặp ký tự hoặc văn bản vô nghĩa",
+  phuong_an_dummy: "Phương án có dấu hiệu gõ thử / placeholder",
+  phuong_an_qua_ngan: "Phương án quá ngắn / chưa hoàn thiện",
+  phu_dinh_kep: "Nghi vấn phủ định kép gây khó hiểu",
+  mo_ho: "Từ ngữ có thể gây mơ hồ",
+  thieu_du_kien: "Thiếu hình ảnh hoặc dữ kiện kèm theo",
+  cau_dai: "Câu hỏi dài bất thường",
+  leech_do_dai: "Chênh lệch độ dài giữa các phương án",
+  thieu_don_vi: "Thiếu đơn vị đo lường trong bài toán",
+  trung_lap: "Nghi ngờ trùng lặp nội dung đề",
+  en_article: "Lặp mạo từ tiếng Anh",
+  en_agreement: "Nghi vấn hòa hợp chủ-vị tiếng Anh",
+  thieu_ngu_canh: "Gợi ý bổ sung ngữ cảnh thời gian / địa điểm",
+  dap_an_sai: "Máy tính lại khác đáp án GV",
+  goi_y_dap_an: "Gợi ý đáp án từ máy tính",
+  solver_khong_khop: "Kết quả tính không khớp các phương án",
+  ai_ambiguous: "Câu hỏi có thể mơ hồ (AI góp ý)",
+  ai_multiple_true: "Nghi vấn nhiều đáp án đúng (AI góp ý)",
+  ai_no_true: "Nghi vấn không có đáp án đúng (AI góp ý)",
+  ai_typo: "Nghi ngờ lỗi chính tả / thuật ngữ (AI góp ý)",
+  ai_factual: "Nghi vấn kiến thức thực tế (AI góp ý)",
+  on: "Đạt chuẩn",
+  ok: "Đạt chuẩn",
+};
+
 export function runRules(q, check = {}, siblings = []) {
   const out = [];
-  const push = (severity, category, evidence, fix_suggestion, verification_method = "rule", confidence = "cao") =>
-    out.push({ severity, category, evidence, fix_suggestion, verification_method, confidence, expected_answer: q.expected_answer, suggested_answer: "" });
+  const push = (severity, category, evidence, fix_suggestion, verification_method = "rule", confidence = "cao", customTitle = null) =>
+    out.push({
+      severity,
+      category,
+      title: customTitle || CATEGORY_TITLES[category] || "Vấn đề cần kiểm tra",
+      evidence,
+      fix_suggestion,
+      verification_method,
+      confidence,
+      expected_answer: q.expected_answer,
+      suggested_answer: "",
+    });
 
-  if (!q.opt_a || !q.opt_b || !q.opt_c || !q.opt_d)
+  // Chỉ kiểm tra thiếu A-D khi xác định là trắc nghiệm (không mặc định mọi câu đều là trắc nghiệm)
+  const isChoice = (check.question_format ?? "choice") !== "essay";
+  const content = q.content || "";
+  const trimmed = content.trim();
+  const optCount = [q.opt_a, q.opt_b, q.opt_c, q.opt_d].filter((o) => String(o ?? "").trim() !== "").length;
+
+  // Nội dung chưa đủ để đánh giá: không phương án + không đáp án + thiếu dấu hiệu câu hỏi
+  // (không "?", không từ nghi vấn, không số/phép tính — nên "2+2=?" vẫn qua, "ashasjdad" dính).
+  // Khi dính rule này thì CHỈ trả 1 finding duy nhất với mức warning/info, không kết luận đáp án sai.
+  const hasQuestionSignal = /[?？]/.test(content)
+    || INTERROGATIVE_WORDS.test(content)
+    || /\d/.test(content)
+    || /[+\-*/=^%√]/.test(content)
+    || /(chọn|điền|tính|tìm|nào sau đây|đúng|sai|hãy|viết|trình bày|giải thích|chứng minh)/i.test(content);
+  if (optCount === 0 && !q.expected_answer && !hasQuestionSignal) {
+    push("warning", "noi_dung_chua_du",
+      "Nội dung chưa đủ để đánh giá (câu quá ngắn/vô nghĩa, chưa thấy phương án hay đáp án).",
+      "Bổ sung đề bài đầy đủ; nếu là trắc nghiệm thì thêm các phương án A/B/C/D; nếu đã có đáp án thì nhập đáp án.",
+      "rule", "vừa", "Nội dung chưa đủ để đánh giá");
+    return out;
+  }
+
+  if (isChoice && (!q.opt_a || !q.opt_b || !q.opt_c || !q.opt_d))
     push("blocker", "thieu_thanh_phan", "Thiếu một hoặc nhiều phương án A/B/C/D.", "Bổ sung đủ 4 phương án trước khi kiểm tiếp.");
   // Đề không kèm đáp án (check.has_answer === 0): không báo thiếu, chỉ ghi nhận info
   const wantAnswer = check.has_answer == null || Number(check.has_answer) !== 0;
@@ -64,9 +131,6 @@ export function runRules(q, check = {}, siblings = []) {
     else
       push("info", "khong_kem_dap_an", "Đề không kèm đáp án — chỉ soi cấu trúc, AI sẽ gợi ý đáp án.", "Bật gợi ý đáp án ở bước chạy để nhận đề xuất.", "rule", "vừa");
   }
-  const content = q.content || "";
-  const trimmed = content.trim();
-
   // 1. Kiểm tra cú pháp dấu hỏi '?'
   if (QUESTION_MARK_LEADING.test(content)) {
     push("review", "dau_hoi_sai_vi_tri", "Dấu hỏi '?' bị đặt ở đầu câu hoặc sai vị trí cú pháp.", "Di chuyển dấu hỏi '?' về cuối câu hỏi.", "rule", "cao");
@@ -107,10 +171,12 @@ export function runRules(q, check = {}, siblings = []) {
   }
 
   for (const re of DOUBLE_NEG) {
-    if (re.test(content)) { push("review", "phu_dinh_kep", `Câu chứa phủ định kép ("${re.source}") — HS dễ hiểu nhầm.`, "Viết lại khẳng định hoặc chỉ giữ 1 phủ định.", "rule", "vừa"); break; }
+    const m = content.match(re);
+    if (m) { push("review", "phu_dinh_kep", `Câu có thể chứa phủ định kép ("${m[0].slice(0, 60)}") — HS dễ hiểu nhầm.`, "Viết lại khẳng định hoặc chỉ giữ 1 phủ định.", "rule", "vừa"); break; }
   }
   for (const re of VAGUE) {
-    if (re.test(content)) { push("review", "mo_ho", `Cụm từ gây mơ hồ: "${re.source}" — mỗi GV/HS có thể hiểu khác nhau.`, "Viết lại cụ thể, tránh từ mơ hồ.", "rule", "vừa"); break; }
+    const m = content.match(re);
+    if (m) { push("review", "mo_ho", `Cụm từ có thể gây mơ hồ: "${m[0]}" — mỗi GV/HS có thể hiểu khác nhau.`, "Viết lại cụ thể, tránh từ mơ hồ.", "rule", "vừa"); break; }
   }
   for (const re of MISSING_MEDIA) {
     if (re.test(content)) { push("review", "thieu_du_kien", "Câu nhắc tới hình/đồ thị/bảng nhưng đề dán thiếu dữ kiện kèm theo.", "Bổ sung hình hoặc mô tả dữ kiện đầy đủ."); break; }

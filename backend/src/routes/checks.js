@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { db } from "../db/db.js";
 import { parseExamText } from "../modules/parser/parser.js";
-import { runRules } from "../modules/rules/rules.js";
+import { runRules, CATEGORY_TITLES } from "../modules/rules/rules.js";
 import { aggregate } from "../modules/aggregator/aggregator.js";
 import { solveNumeric } from "../modules/solver/solver.js";
-import { solveBlind, counterArgue, llmConfig } from "../modules/llm/provider.js";
+import { solveBlind, counterArgue, llmConfig, solverPrompt, arguePrompt } from "../modules/llm/provider.js";
+import { buildQuestionStats } from "../modules/stats/stats.js";
+import { checkQuota, consumeQuota, ensureUser, totalCost, recordCost } from "../modules/quota/quota.js";
 
 const MAX_QUESTIONS = 50;
 
@@ -37,14 +39,14 @@ export function getOwnedCheck(id) {
 
 export function listChecks(req, res, next) {
   try {
-    const rows = db.prepare("SELECT id,title,subject,grade,level_expect,group_kind,status,created_at,(SELECT COUNT(*) FROM questions WHERE check_id=checks.id) AS question_count FROM checks WHERE user_id=? ORDER BY created_at DESC LIMIT 50").all(CURRENT_USER);
+    const rows = db.prepare("SELECT id,title,subject,grade,level_expect,group_kind,has_answer,question_format,status,created_at,(SELECT COUNT(*) FROM questions WHERE check_id=checks.id) AS question_count FROM checks WHERE user_id=? ORDER BY created_at DESC LIMIT 50").all(CURRENT_USER);
     res.json({ checks: rows });
   } catch (e) { next(e); }
 }
 
 export function createCheck(req, res, next) {
   try {
-    const { title = "Bài kiểm tra", subject = "Toán", grade = "", level_expect = "", check_level = "", group_kind = "", exam_text = "", questions = [], has_answer = "auto" } = req.body ?? {};
+    const { title = "Bài kiểm tra", subject = "Toán", grade = "", level_expect = "", check_level = "", group_kind = "", exam_text = "", questions = [], has_answer = "auto", question_format = "auto" } = req.body ?? {};
     // Làm sạch tên đề/môn/lớp: chống tên rác, ký tự điều khiển, chuỗi quá dài
     const cleanTitle = cleanText(title, 120) || "Bài kiểm tra";
     const cleanSubject = cleanText(subject, 30) || "Toán";
@@ -59,6 +61,8 @@ export function createCheck(req, res, next) {
     if (exam_text && (!questions || questions.length === 0)) parsed = parseExamText(exam_text);
     if (!parsed || parsed.length === 0) throw err("INPUT_EMPTY", "Chưa tách được câu hỏi nào. Hãy kiểm tra định dạng A/B/C/D.", 400);
     if (parsed.length > MAX_QUESTIONS) throw err("INPUT_TOO_LONG", `Tối đa ${MAX_QUESTIONS} câu/lần.`, 413);
+    // T18 paywall: chặn TRƯỚC khi tạo để free không dùng vô hạn.
+    const quota = checkQuota(parsed.length);
 
     const id = randomUUID();
     const group = group_kind || guessGroup(cleanSubject);
@@ -70,12 +74,18 @@ export function createCheck(req, res, next) {
     const hasAnswer = has_answer === "auto" || has_answer == null
       ? detectedHasAnswer
       : has_answer === true || has_answer === 1 || has_answer === "true";
-    db.prepare("INSERT INTO checks(id,user_id,title,subject,grade,level_expect,group_kind,has_answer,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)")
-      .run(id, CURRENT_USER, cleanTitle, cleanSubject, cleanGrade, level, group, hasAnswer ? 1 : 0, "created", new Date().toISOString());
+    // question_format: choice | essay | "auto". auto: có dấu hiệu A-D -> choice, ngược lại essay.
+    const optCount = parsed.filter((q) => [q.opt_a, q.opt_b, q.opt_c, q.opt_d].some((o) => String(o ?? "").trim() !== "")).length;
+    const detectedFormat = optCount / parsed.length >= 0.3 ? "choice" : "essay";
+    const format = question_format === "auto" || question_format == null
+      ? detectedFormat
+      : (question_format === "essay" ? "essay" : "choice");
+    db.prepare("INSERT INTO checks(id,user_id,title,subject,grade,level_expect,group_kind,has_answer,question_format,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, CURRENT_USER, cleanTitle, cleanSubject, cleanGrade, level, group, hasAnswer ? 1 : 0, format, "created", new Date().toISOString());
     const qins = db.prepare("INSERT INTO questions(id,check_id,ord,content,opt_a,opt_b,opt_c,opt_d,expected_answer,explanation) VALUES(?,?,?,?,?,?,?,?,?,?)");
     parsed.forEach((q, i) => qins.run(randomUUID(), id, i + 1, q.content ?? "", q.opt_a ?? "", q.opt_b ?? "", q.opt_c ?? "", q.opt_d ?? "", q.expected_answer ?? "", q.explanation ?? ""));
-    db.prepare("UPDATE users SET used_this_month = used_this_month + ? WHERE id=?").run(parsed.length, CURRENT_USER);
-    res.json({ check_id: id, question_count: parsed.length, group_kind: group, level_expect: level, has_answer: hasAnswer, answer_detected: detectedHasAnswer });
+    consumeQuota(parsed.length);
+    res.json({ check_id: id, question_count: parsed.length, group_kind: group, level_expect: level, has_answer: hasAnswer, answer_detected: detectedHasAnswer, question_format: format, format_detected: detectedFormat, quota_left: quota.unlimited ? null : quota.quota_left });
   } catch (e) { next(e); }
 }
 
@@ -109,10 +119,18 @@ export async function runCheck(req, res, next) {
     const deep = check.level_expect === "deep";
     let deepArgueLeft = 10;
     const allQs = db.prepare("SELECT * FROM questions WHERE check_id=? ORDER BY ord").all(id);
+    const cfg = llmConfig();
+    // T18: đếm usage để ghi log chi phí. llmConfig chưa trả usage thật (callLLM
+    // chưa cắm provider) nên ước lượng theo độ dài prompt (~4 ký tự/token) —
+    // đủ để biết đơn giá/câu thực tế, sẽ thay bằng usage thật khi cắm provider.
+    const usage = { inputTokens: 0, outputTokens: 0, calls: 0 };
+    const est = (s) => Math.ceil(String(s ?? "").length / 4);
     for (const q of questions) {
       const ruleFindings = runRules(q, check, allQs);
       let solver = null, llm = null;
-      if (check.group_kind === "T") {
+      const isInsufficient = ruleFindings.some((f) => f.category === "noi_dung_chua_du");
+
+      if (!isInsufficient && check.group_kind === "T") {
         solver = await solveNumeric(q).catch((e) => ({ value: null, steps: "", method: "computed", error: e }));
         if (solver?.error?.code === "SOLVER_TIMEOUT") {
           llm = { status: "fallback", confidence: "thấp", note: "solver timeout — chưa thể kết luận" };
@@ -125,11 +143,20 @@ export async function runCheck(req, res, next) {
       const needArgue = solver?.matchLetter && q.expected_answer && solver.matchLetter !== q.expected_answer;
       const lowConf = ruleFindings.some((f) => f.confidence === "thấp" || (hasAns && f.category === "thieu_dap_an"));
       const wantDeep = deep && deepArgueLeft > 0;
-      if (llmConfig().hasKey && (needArgue || lowConf || wantDeep)) {
+      if (!isInsufficient && llmConfig().hasKey && (needArgue || lowConf || wantDeep)) {
         if (wantDeep && !needArgue && !lowConf) deepArgueLeft--;
         const blind = await solveBlind(q);
         if (!blind?.status) llm = await counterArgue(q, blind.answer || "");
         else if (blind?.status === "fallback") llm = blind;
+        if (blind && !blind.status) {
+          usage.inputTokens += est(solverPrompt(q)) + est(arguePrompt(q, blind.answer || ""));
+          usage.outputTokens += est(blind.steps) + est(llm?.evidence) + 200;
+          usage.calls += 2;
+        } else if (blind?.status === "solved" || blind?.answer) {
+          usage.inputTokens += est(solverPrompt(q));
+          usage.outputTokens += est(blind.steps) + 200;
+          usage.calls += 1;
+        }
       }
       const final = aggregate(q, check, ruleFindings, { solver, llm });
       for (const f of final) {
@@ -137,10 +164,26 @@ export async function runCheck(req, res, next) {
         count++;
       }
     }
+    // Ghi log chi phí AI (T18). costUSD = 0 nếu chưa điền LLM_PRICE_IN/OUT.
+    const costUSD = (usage.inputTokens / 1e6) * cfg.priceIn + (usage.outputTokens / 1e6) * cfg.priceOut;
+    recordCost({ checkId: id, model: cfg.hasKey ? `${cfg.provider}/${cfg.model}` : "rules-only", ...usage, costUSD });
     db.prepare("UPDATE checks SET status='done' WHERE id=?").run(id);
-    const cfg = llmConfig();
-    res.json({ check_id: id, status: "done", finding_count: count, elapsed_ms: Date.now() - started, model: cfg.hasKey ? `${cfg.provider}/${cfg.model}` : "rules-only" });
+    res.json({ check_id: id, status: "done", finding_count: count, elapsed_ms: Date.now() - started, model: cfg.hasKey ? `${cfg.provider}/${cfg.model}` : "rules-only", usage: { ...usage, costUSD } });
   } catch (e) { next(e); }
+}
+
+// Thống kê DUY NHẤT từ findings đã lưu: số câu có vấn đề, số lỗi xác định (blocker),
+// số cảnh báo (review), số gợi ý (hint+info). Mọi nơi hiển thị dùng chung object này.
+export { buildQuestionStats };
+
+function enrichFinding(f) {
+  const isErr = f.severity === "blocker" || f.severity === "error";
+  const isWarn = f.severity === "review" || f.severity === "warning";
+  const defaultTitle = isErr ? "Lỗi cần xử lý" : isWarn ? "Nghi vấn cần kiểm tra" : "Gợi ý kiểm chứng";
+  return {
+    ...f,
+    title: f.title || CATEGORY_TITLES[f.category] || defaultTitle,
+  };
 }
 
 export function getResults(req, res, next) {
@@ -148,13 +191,14 @@ export function getResults(req, res, next) {
     const { id } = req.params;
     const check = getOwnedCheck(id);
     const questions = db.prepare("SELECT * FROM questions WHERE check_id=? ORDER BY ord").all(id);
-    const findings = db.prepare("SELECT * FROM findings WHERE question_id IN (SELECT id FROM questions WHERE check_id=?)").all(id);
+    const rawFindings = db.prepare("SELECT * FROM findings WHERE question_id IN (SELECT id FROM questions WHERE check_id=?)").all(id);
+    const findings = rawFindings.map(enrichFinding);
     const byQ = new Map(questions.map((q) => [q.id, { ...q, findings: [] }]));
     for (const f of findings) byQ.get(f.question_id)?.findings.push(f);
-    const counts = { blocker: 0, review: 0, hint: 0, ok: 0 };
+    const counts = { blocker: 0, review: 0, warning: 0, hint: 0, info: 0, ok: 0 };
     for (const f of findings) if (counts[f.severity] !== undefined) counts[f.severity]++;
     const done = questions.filter((q) => byQ.get(q.id)?.findings.length).length;
-    res.json({ check, questions: [...byQ.values()], counts, progress: { done, total: questions.length } });
+    res.json({ check, questions: [...byQ.values()], counts, question_stats: buildQuestionStats(questions, findings), progress: { done, total: questions.length } });
   } catch (e) { next(e); }
 }
 
@@ -181,19 +225,20 @@ export function getReport(req, res, next) {
     const check = getOwnedCheck(id);
     const questions = db.prepare("SELECT * FROM questions WHERE check_id=? ORDER BY ord").all(id);
     const nQ = questions.length;
-    const findings = db.prepare("SELECT f.*, q.ord, q.content, q.expected_answer AS q_expected_answer FROM findings f JOIN questions q ON q.id=f.question_id WHERE q.check_id=? ORDER BY q.ord").all(id);
+    const rawFindings = db.prepare("SELECT f.*, q.ord, q.content, q.expected_answer AS q_expected_answer FROM findings f JOIN questions q ON q.id=f.question_id WHERE q.check_id=? ORDER BY q.ord").all(id);
+    const findings = rawFindings.map(enrichFinding);
     const confirmed = findings.filter((f) => f.status === "confirmed");
     const pending = findings.filter((f) => f.status === "pending");
     const needsExpert = findings.filter((f) => f.status === "needs_expert");
     const okQ = db.prepare("SELECT COUNT(*) AS c FROM questions WHERE check_id=? AND id NOT IN (SELECT question_id FROM findings WHERE severity != 'ok')").get(id).c;
     // Đếm theo MỨC ĐỘ để bảng tổng khớp màu thẻ cảnh báo (không theo trạng thái duyệt)
     const sev = db.prepare("SELECT severity, COUNT(*) AS c FROM findings WHERE question_id IN (SELECT id FROM questions WHERE check_id=?) GROUP BY severity").all(id);
-    const severity_counts = { blocker: 0, review: 0, hint: 0 };
+    const severity_counts = { blocker: 0, review: 0, warning: 0, hint: 0, info: 0 };
     for (const r of sev) if (severity_counts[r.severity] !== undefined) severity_counts[r.severity] = r.c;
     const cfg = llmConfig();
     res.json({
       check,
-      summary: { total_questions: nQ, confirmed: confirmed.length, pending: pending.length, needs_expert: needsExpert.length, ok_questions: okQ, severity_counts },
+      summary: { total_questions: nQ, confirmed: confirmed.length, pending: pending.length, needs_expert: needsExpert.length, ok_questions: okQ, severity_counts, question_stats: buildQuestionStats(questions, findings) },
       findings,
       confirmed, pending, needs_expert: needsExpert,
       scope_note: scopeNote(check),
@@ -215,8 +260,20 @@ export function removeCheck(req, res, next) {
 
 export function getMe(req, res, next) {
   try {
-    const user = db.prepare("SELECT id, display_name, plan, monthly_quota, used_this_month FROM users WHERE id=?").get("demo-teacher");
-    res.json({ user });
+    const u = ensureUser();
+    const quota = Number(u.monthly_quota ?? 30);
+    const used = Number(u.used_this_month ?? 0);
+    const premium = String(u.plan || "free").toLowerCase() === "premium";
+    res.json({
+      user: {
+        id: u.id, display_name: u.display_name, plan: u.plan,
+        monthly_quota: quota, used_this_month: used,
+        // FE dùng để hiện banner upsell + chặn sớm trước khi gọi API.
+        quota_left: premium ? null : Math.max(0, quota - used),
+        unlimited: premium,
+      },
+      ai_cost: totalCost(), // T18: tổng cost đã ghi — để T21 đo đơn giá thực/câu
+    });
   } catch (e) { next(e); }
 }
 

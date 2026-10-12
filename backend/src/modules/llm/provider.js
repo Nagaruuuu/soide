@@ -8,6 +8,10 @@ export function llmConfig() {
     provider: process.env.LLM_PROVIDER || "gemini",
     model: process.env.LLM_MODEL || "gemini-2.0-flash",
     hasKey: !!process.env.LLM_API_KEY,
+    // T18: giá để tính cost_usd. Mặc định 0 => costOf ra 0; phải điền .env thật
+    // thì mới đo được chi phí (xem .env.example + plan §15.2).
+    priceIn: Number(process.env.LLM_PRICE_IN || 0), // USD / 1M input tokens
+    priceOut: Number(process.env.LLM_PRICE_OUT || 0), // USD / 1M output tokens
   };
 }
 

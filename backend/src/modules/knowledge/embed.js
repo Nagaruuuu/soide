@@ -12,8 +12,8 @@ export function embedConfig() {
     apiKey: process.env.EMBED_API_KEY || process.env.LLM_API_KEY || "",
     baseUrl: process.env.LLM_BASE_URL || "https://generativelanguage.googleapis.com",
     timeoutMs: Number(process.env.LLM_TIMEOUT_MS || 20000),
-    maxChunks: Number(process.env.EMBED_MAX_CHUNKS || 400),
-    maxChars: Number(process.env.EMBED_MAX_CHARS || 200000),
+    maxChunks: Number(process.env.EMBED_MAX_CHUNKS || 2000),
+    maxChars: Number(process.env.EMBED_MAX_CHARS || 2000000),
     pricePer1kChars: Number(process.env.EMBED_PRICE_PER_1K_CHARS || 0), // USD/1k ký tự
   };
 }
@@ -99,4 +99,44 @@ export async function embedTexts(texts = [], cfg = embedConfig()) {
     return { ...r, costUSD: (r.chars / 1000) * cfg.pricePer1kChars, engine: `gemini/${cfg.model}` };
   }
   throw aiError("BAD_CONFIG", `EMBED_PROVIDER "${cfg.provider}" không hỗ trợ (hash|gemini|mock).`, 400, false);
+}
+
+// --- Lưu vector: BLOB float32 thay cho JSON string (T13) ---
+// JSON string 512 số/chunk ~ 5-8KB; BLOB float32 đúng 2KB và parse tức thì.
+export function packVector(vec = []) {
+  if (!Array.isArray(vec) && !ArrayBuffer.isView(vec)) return null;
+  const f = vec instanceof Float32Array ? vec : Float32Array.from(vec);
+  if (!f.length) return null;
+  return new Uint8Array(f.buffer, f.byteOffset, f.byteLength);
+}
+
+export function unpackVector(blob) {
+  if (!blob || blob.byteLength < 4) return null;
+  // BLOB phải chia hết cho 4, tránh đọc lệch byte
+  if (blob.byteLength % 4 !== 0) return null;
+  const f = new Float32Array(blob.byteLength / 4);
+  const u = new Uint8Array(f.buffer);
+  u.set(new Uint8Array(blob.buffer ?? blob, blob.byteOffset ?? 0, blob.byteLength));
+  return f;
+}
+
+// Cosine thẳng trên BLOB float32 với buffer TÁI DÙNG.
+// Cần vì retrieve quét hàng chục nghìn chunk: unpackVector() cấp phát Float32Array
+// mới cho từng dòng thì GC gánh nặng, đo thấy chậm hơn cả JSON.parse.
+// `scratch` là Float32Array tái dùng giữa các dòng (xem retrieve.js).
+export function cosineBlob(qv, blob, scratch = null) {
+  if (!qv || !qv.length || !blob || blob.byteLength < 4) return 0;
+  if (blob.byteLength % 4 !== 0) return 0;
+  // Nếu BLOB nằm trên ranh giới 4 byte thì view Float32Array TRỰC TIẾP, khỏi copy.
+  // Đây là đường nóng khi retrieve quét hàng chục nghìn chunk.
+  if (blob.buffer && blob.byteOffset % 4 === 0) {
+    const direct = new Float32Array(blob.buffer, blob.byteOffset, blob.byteLength / 4);
+    return cosine(qv, direct);
+  }
+  // Ngược lại (lệch byte) thì copy vào buffer tái dùng để tránh cấp phát mỗi dòng.
+  const n = blob.byteLength / 4;
+  const v = scratch && scratch.length === n ? scratch : new Float32Array(n);
+  const u = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+  u.set(new Uint8Array(blob.buffer ?? blob, blob.byteOffset ?? 0, blob.byteLength));
+  return cosine(qv, v);
 }
